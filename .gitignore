@@ -9,6 +9,11 @@ traces/
 outcome_ledger/
 scorecard.html
 node_modules/
+demo/remotion/out/
+demo/remotion/public/voiceover.wav
+demo/remotion/public/voiceover.aiff
+bun.lock
+package-lock.json
 .DS_Store
 *.snapshot.txt
 devpost_step2_filled.png
