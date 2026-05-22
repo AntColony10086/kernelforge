@@ -90,6 +90,27 @@ def test_sanitizes_error_string_that_contains_forbidden_phrase():
     assert "abandoned" in out.lower()
 
 
+def test_sanitizes_case_and_whitespace_variants():
+    """Cover VERIFIED CORRECT, verified_correct, verified  correct, etc."""
+    variants = [
+        "VERIFIED CORRECT",
+        "Verified Correct",
+        "verified_correct",
+        "verified   correct",
+        "verified\tcorrect",
+    ]
+    for v in variants:
+        led = KernelLedger()
+        led.start("rope", iteration=1, llm_route="deepseek-v4-flash")
+        led.advance("rope", LedgerState.ABANDONED, error=f"LLM said: '{v}'")
+        out = render_final_answer(led, op="rope")
+        # Case-insensitive, whitespace/underscore-permissive check.
+        import re as _re
+        assert _re.search(r"verified[\s_]+correct", out, _re.IGNORECASE) is None, (
+            f"variant {v!r} leaked into output: {out!r}"
+        )
+
+
 def test_full_run_never_claims_correctness_without_verified_state():
     """Whatever combination of ledger states exists, the renderer must
     never produce the substring 'verified correct' for an op whose

@@ -30,14 +30,23 @@ def render_final_answer(ledger: KernelLedger, *, op: str | None = None) -> str:
     return "\n".join(lines)
 
 
+import re
+
+_FORBIDDEN_RE = re.compile(r"verified[\s_]+correct", re.IGNORECASE)
+
+
 def _sanitize(text: str | None) -> str:
-    """Redact the substring 'verified correct' from any text we splice into
-    the rendered output. Defense in depth: error strings, LLM-echoed text,
-    or any user-provided field could otherwise leak the forbidden claim.
+    """Redact the forbidden claim 'verified correct' from any text we splice
+    into the rendered output. Defense in depth: error strings, LLM-echoed
+    text, or any user-provided field could otherwise leak the forbidden
+    claim.
+
+    Matches: "verified correct", "Verified Correct", "VERIFIED CORRECT",
+    "verified_correct", "verified  correct", "verified\tcorrect", etc.
     """
     if not text:
         return ""
-    return text.replace("verified correct", "verified <REDACTED>").replace("Verified Correct", "Verified <REDACTED>")
+    return _FORBIDDEN_RE.sub("verified <REDACTED>", text)
 
 
 def _render_one(entry: LedgerEntry) -> str:
