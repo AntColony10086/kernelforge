@@ -67,26 +67,27 @@ const Opener: React.FC = () => {
 
 const EscalationBeat: React.FC = () => (
   <AbsoluteFill style={{padding: 80, flexDirection: 'column', gap: 32}}>
-    <Title sub="Beat 2 — Cost-aware LLM escalation via TrueFoundry AI Gateway">LLM brownout / failure</Title>
+    <Title sub="Beat 2 — Cost-aware LLM escalation via TrueFoundry AI Gateway">Iteration 1 compile error → escalate</Title>
     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginTop: 24}}>
       <div style={{background: '#1a1010', padding: 24, borderRadius: 12, border: `1px solid ${ACCENT_RED}66`}}>
         <div style={{color: ACCENT_RED, fontSize: 20, marginBottom: 12}}>Naive baseline</div>
         <pre style={{fontSize: 18, lineHeight: 1.6}}>{`POST deepseek-v4-flash
-HTTP 429 (rate limit)
-agent halted.`}</pre>
+generated kernel
+compile error.
+agent stops, reports done.`}</pre>
       </div>
       <div style={{background: '#101a14', padding: 24, borderRadius: 12, border: `1px solid ${ACCENT_GREEN}66`}}>
         <div style={{color: ACCENT_GREEN, fontSize: 20, marginBottom: 12}}>KernelForge + TrueFoundry</div>
         <pre style={{fontSize: 18, lineHeight: 1.6}}>{`POST deepseek-v4-flash
-HTTP 429 -> routing applied
+compile error -> escalate
 x-tfy-routing: from=v4-flash
-              to=v4-pro
+              to=coder
               reason=quality-escalation
-agent continues.`}</pre>
+iter 2 with diff feedback.`}</pre>
       </div>
     </div>
     <div style={{marginTop: 24, fontSize: 22, opacity: 0.85}}>
-      Routing rule in <code>routing_config.yaml</code>: <span style={{color: ACCENT_BLUE}}>fallback_status_codes</span> = [408, 429, 500, 502, 503, 504] &nbsp; <span style={{color: ACCENT_BLUE}}>fallback_candidate</span> = deepseek-v4-pro
+      Routing rule in <code>routing_config.yaml</code>: <span style={{color: ACCENT_BLUE}}>fallback_status_codes</span> = [408, 429, 500, 502, 503, 504] &nbsp; <span style={{color: ACCENT_BLUE}}>fallback_candidate</span> = deepseek-coder
     </div>
   </AbsoluteFill>
 );
@@ -101,18 +102,19 @@ const MoneyShot: React.FC = () => (
 > compile: OK
 > smoke run on [1,8,64]: shape OK
 RoPE kernel ready: 1.4x speedup ✓
-[shipped to production]`}</pre>
+[ships kernel — silent wrong output on
+ holdout shape [2,32,128]]`}</pre>
       </div>
       <div style={{background: '#101a14', padding: 24, borderRadius: 12, border: `1px solid ${ACCENT_GREEN}66`}}>
         <div style={{color: ACCENT_GREEN, fontSize: 22, marginBottom: 12}}>KernelForge (hidden holdouts)</div>
         <pre style={{fontSize: 16, lineHeight: 1.6}}>{`> generate rope kernel via v4-flash
 > compile: OK
 > smoke run on [1,8,64]: shape OK
-> holdout [2,32,128]: max_abs_diff 0.84
-  ! suspected: split-half vs interleaved layout
-> escalate to v4-pro, iter 2
-> compile + holdouts: 5/5 pass
-RoPE: verified correct after 2 iter`}</pre>
+> holdout [2,32,128]: max_abs_diff > 1e-4
+  ! suspected: split-half vs interleaved
+> iter 2 (deepseek-coder): pass=0, fail=5
+> iter 3: still NOT verified
+RoPE: NOT shipped (no false claim)`}</pre>
       </div>
     </div>
     <div style={{marginTop: 16, fontSize: 22, color: ACCENT_BLUE, textAlign: 'center'}}>
@@ -123,14 +125,14 @@ RoPE: verified correct after 2 iter`}</pre>
 
 const ScaleShot: React.FC = () => (
   <AbsoluteFill style={{padding: 80, flexDirection: 'column', gap: 24}}>
-    <Title sub="Beat 4 — 3 ops, honest per-op perf disclosure">Scale across the benchmark suite</Title>
+    <Title sub="Beat 4 — 3 ops, honest no-false-success accounting">Across the benchmark suite</Title>
     <div style={{display: 'flex', flexDirection: 'column', gap: 16, marginTop: 24, fontSize: 26}}>
-      <div>RoPE — verified after 2 iterations &nbsp;|&nbsp; <span style={{color: ACCENT_GREEN}}>1.2x</span> MLX eager &nbsp;|&nbsp; <span style={{color: ACCENT_RED}}>0.8x</span> mx.fast.rope (honest)</div>
-      <div>RMSNorm — verified iter 1 &nbsp;|&nbsp; <span style={{color: ACCENT_GREEN}}>1.4x</span> MLX eager &nbsp;|&nbsp; <span style={{color: ACCENT_RED}}>0.7x</span> mx.fast.rms_norm</div>
-      <div>SwiGLU — verified iter 1 &nbsp;|&nbsp; <span style={{color: ACCENT_GREEN}}>1.1x</span> MLX eager</div>
+      <div><span style={{color: ACCENT_RED}}>Naive</span> — claims 3/3 correct. Reality: <span style={{color: ACCENT_RED}}>1/3 silently wrong (rope under chaos)</span>. No retries, no escalation.</div>
+      <div><span style={{color: ACCENT_GREEN}}>KernelForge</span> — claims 0/3. Reality: <span style={{color: ACCENT_GREEN}}>0/3 false claims</span>. Tried v4-flash → coder, holdouts caught every iteration's bug.</div>
     </div>
-    <div style={{marginTop: 24, fontSize: 20, opacity: 0.7}}>
-      Where we lose to MLX built-ins, we say so. No PyTorch CPU comparisons.
+    <div style={{marginTop: 32, fontSize: 22, opacity: 0.85, lineHeight: 1.5}}>
+      The naive baseline shipped a wrong RoPE kernel because the smoke test said OK and the holdouts were not run.<br/>
+      KernelForge would rather ship nothing than claim correctness it cannot prove.
     </div>
   </AbsoluteFill>
 );
@@ -148,10 +150,10 @@ const Scorecard: React.FC = () => (
           </tr>
         </thead>
         <tbody>
-          <tr><td style={{padding: 16}}>Kernels claimed correct</td><td style={{padding: 16}}>3/3</td><td style={{padding: 16}}>3/3</td></tr>
-          <tr><td style={{padding: 16}}>Hidden holdout pass rate</td><td style={{padding: 16, color: ACCENT_RED}}>33%</td><td style={{padding: 16, color: ACCENT_GREEN}}>100%</td></tr>
-          <tr><td style={{padding: 16}}>Silent wrong-output rate</td><td style={{padding: 16, color: ACCENT_RED}}>67%</td><td style={{padding: 16, color: ACCENT_GREEN}}>0%</td></tr>
-          <tr><td style={{padding: 16}}>LLM routing (TrueFoundry)</td><td style={{padding: 16}}>v4-flash only</td><td style={{padding: 16}}>v4-flash → v4-pro</td></tr>
+          <tr><td style={{padding: 16}}>Kernels claimed correct</td><td style={{padding: 16}}>3/3</td><td style={{padding: 16}}>0/3</td></tr>
+          <tr><td style={{padding: 16}}>Hidden holdout pass rate</td><td style={{padding: 16, color: ACCENT_RED}}>2/3</td><td style={{padding: 16, color: ACCENT_GREEN}}>0/3</td></tr>
+          <tr><td style={{padding: 16}}>False-success claims</td><td style={{padding: 16, color: ACCENT_RED}}>1</td><td style={{padding: 16, color: ACCENT_GREEN}}>0</td></tr>
+          <tr><td style={{padding: 16}}>LLM routing (TrueFoundry)</td><td style={{padding: 16}}>v4-flash only</td><td style={{padding: 16}}>v4-flash → coder</td></tr>
         </tbody>
       </table>
       <div style={{marginTop: 60, fontSize: 28, opacity: 0.85}}>

@@ -23,9 +23,15 @@ _FALLBACK_STATUS = {408, 429, 500, 502, 503, 504}
 
 
 def _select_route(default_route: str, x_tfy_metadata: str | None) -> tuple[str, str]:
-    """Return (route_name, deepseek_model_id). Mimics TF routing_config."""
+    """Return (route_name, deepseek_model_id). Mimics TF routing_config.
+
+    Escalation target: deepseek-coder (code-specialised, fast, OpenAI-compatible).
+    We considered deepseek-v4-pro but its long-prompt streaming is unreliable
+    on the current API tier — DeepSeek closes the connection mid-body for
+    real kernel-generation requests.
+    """
     if x_tfy_metadata and "escalate=pro" in x_tfy_metadata:
-        return "deepseek-v4-pro", "deepseek-v4-pro"
+        return "deepseek-coder", "deepseek-coder"
     return default_route, default_route
 
 
@@ -39,7 +45,7 @@ async def chat_completions(req: Request, x_tfy_metadata: str | None = Header(def
     api_key = os.environ.get("DEEPSEEK_API_KEY", "")
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         first = await client.post(
             f"{_DEEPSEEK_BASE}/v1/chat/completions",
             headers=headers,
@@ -49,7 +55,7 @@ async def chat_completions(req: Request, x_tfy_metadata: str | None = Header(def
     fallback_applied = False
     if first.status_code in _FALLBACK_STATUS and route_name != "deepseek-v4-pro":
         body["model"] = "deepseek-v4-pro"
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             second = await client.post(
                 f"{_DEEPSEEK_BASE}/v1/chat/completions",
                 headers=headers,

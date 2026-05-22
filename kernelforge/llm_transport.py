@@ -21,13 +21,13 @@ class HttpTransport:
             "messages": messages,
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
-            "max_tokens": 4096,
+            "max_tokens": 16384,
         }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         if extra_headers:
             headers.update(extra_headers)
 
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             r = await client.post(f"{self.base_url}/v1/chat/completions", headers=headers, json=body)
         r.raise_for_status()
         payload = r.json()

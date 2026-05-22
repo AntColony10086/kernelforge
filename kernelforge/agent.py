@@ -58,7 +58,7 @@ async def run_kernelforge(op: str, llm: LLMClient, *, profile: str = "demo") -> 
 
     for iteration in range(1, max_iter + 1):
         escalate = iteration > escalate_after
-        route = "deepseek-v4-pro" if escalate else "deepseek-v4-flash"
+        route = "deepseek-coder" if escalate else "deepseek-v4-flash"
         led.start(op, iteration=iteration, llm_route=route)
 
         # Generate kernel via LLM
