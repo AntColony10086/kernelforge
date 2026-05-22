@@ -1,66 +1,76 @@
-# KernelForge — Design Spec (locked 2026-05-22)
+# KernelForge — Design Spec v2 (locked 2026-05-22 after Codex round 3)
 
-An LLM agent that writes, verifies, and iteratively optimizes MLX/Metal GPU kernels for Apple Silicon, with built-in correctness verification that refuses to claim kernel correctness without proof.
+**Robust verification and cost-aware routing for LLM-written MLX / Metal kernels on Apple Silicon.**
 
-> **Pivot notice (2026-05-22 evening):** This project pivoted from `Chaosguard — MCP Agent Resilience Runtime` after user clarified the primary goal is AI-infra-flavored resume value (kernel work) rather than agent-infra work. ~60% of the Chaosguard architecture is retained (`OutcomeLedger` → `KernelLedger`, side-effect verification → reference-output verification, naive-vs-resilient demo structure, TrueFoundry gateway integration). Historical Chaosguard spec is preserved at `2026-05-22-chaosguard-design.md` for context.
+> **v1 → v2 changelog (post Codex round 3 review):**
+> - Repositioned from "structured iterate loop" (not novel — Sakana already did this) to **"hidden holdout verification + cost-aware LLM routing"**.
+> - 5 ops → 3 ops: `RoPE`, `RMSNorm`, `SwiGLU`.
+> - 3 MCP servers → 1 unified `kernel_lab` MCP exposing `compile / run / verify / bench`.
+> - Perf baselines: PyTorch CPU is correctness reference only; performance is measured against **MLX eager**, **`mx.compile`**, and MLX built-ins (`mx.fast.rms_norm`, `mx.fast.rope`).
+> - DeepSeek model names updated: `deepseek-v4-flash` (happy path) and `deepseek-v4-pro` (escalation). The previous `deepseek-chat` / `deepseek-reasoner` are legacy aliases through 2026-07-24.
+> - LLM routing framing: **cost-aware escalation** (cheap Flash for happy path, escalate to Pro after compile/correctness failure), not provider-HA.
+> - Money shot: RoPE with hidden-holdout-caught layout bug (interleaved vs split-half), not a fake RMSNorm numerical error.
+> - Iteration caps: 3 in demo, 6 in regression; escalation to Pro after first failure.
+> - Demo pipeline: scripted run produces static artifacts (traces, ledger, screenshots, scorecard JSON), Remotion consumes them — does not depend on live terminal timing.
 
 ## 1. Context
 
 **Hackathon:** DevNetwork [AI + ML] Hackathon 2026
 **Submission deadline:** 2026-05-28 10:00 PDT (≈ 5.5 days from spec lock)
 **Track (primary):** TrueFoundry — Resilient Agents ($500 + $200)
-**Track (secondary, opportunistic):** Overall Winner (Amazon Echos + DevNetwork passes + 60K-subscriber email blast)
+**Track (secondary, opportunistic):** Overall Winner
 **Team:** solo (`@AntColony10086` / Ant Lu)
+**Hardware:** M4 Mac mini 16GB / 256GB only (4060 laptop excluded to honor "user does nothing" constraint).
+**LLM:** DeepSeek API key only.
+**Autonomy:** I (Claude 4.7) + Codex (GPT-5.5 xhigh) execute end-to-end; user's only manual action is `DEEPSEEK_API_KEY=...` in `.env`.
 
-**User's strategic goal**: enrich AI Infra internship resume. Ranking is desirable but not required. Operator-/kernel-flavored work has 2-3× higher resume value at Nvidia, DeepSeek, Anthropic, MoonshotAI, and other AI infra hirers than agent-infra work.
-
-**Hardware available:**
-- M4 Mac mini 16GB / 256GB (primary; this is what Claude Code runs on)
-- RTX 4060 8GB laptop (NOT used in this project — using it would require SSH setup, violating user's "do nothing" constraint)
-
-**LLM available:** DeepSeek API key only (no OpenAI, no Anthropic, no Groq, no local Ollama).
-
-**Autonomy constraint:** the user requires that I + Codex do everything end-to-end — write code, run experiments, generate the demo video, update DevPost. The user's only manual action is putting `DEEPSEEK_API_KEY=...` into `/Users/ant/infra-race/.env` once, and reviewing the final submission.
-
-Sponsor track prompt (verbatim from DevPost): *"How does your agent behave when an MCP server starts erroring out? An LLM server goes down? OpenAI or Claude errors out or browns out? The goal of this challenge is to see how user experience and the user side of things are handled when this infrastructure chaos happens and how your agent is configured and set up for success and resilience."*
+Sponsor track prompt (verbatim): *"How does your agent behave when an MCP server starts erroring out? An LLM server goes down? OpenAI or Claude errors out or browns out? The goal of this challenge is to see how user experience and the user side of things are handled when this infrastructure chaos happens and how your agent is configured and set up for success and resilience."*
 
 Sponsor-stated judging focus: **resilience, reliability, production-readiness under failure conditions**.
-General judging criteria: **Progress / Concept / Feasibility (could become a company)**.
+General judging criteria: **Progress / Concept / Feasibility**.
+
+User's strategic goal: AI Infra internship resume value first, ranking second. Operator/kernel work has 2-3× higher resume value than agent-infra work at Nvidia / DeepSeek / Anthropic / MoonshotAI for AI Infra roles.
 
 ## 2. Concept
 
-**KernelForge** is an autonomous engineer for Apple Silicon GPU kernels. You hand it a PyTorch reference operator (e.g., `RMSNorm`, `RoPE`, `SiLU`); it generates an MLX/Metal kernel, compiles it, verifies its numerical correctness against the reference, iterates if wrong, benchmarks if correct, and surfaces a verified-correct kernel with measured speedup.
+**KernelForge** is a small agent + verification harness that takes a PyTorch reference operator (`RMSNorm`, `RoPE`, `SwiGLU`) and returns either a **verified-correct MLX/Metal kernel implementation** with measured speedup, or an honest abandonment with the reason and the diff against reference.
 
-**Positioning**: not a benchmark suite (KernelBench), not an evolutionary search (Sakana AI CUDA Engineer), not a one-shot generation (the "ask GPT-4 to write Triton" demos that float around). It is an **agent with a structured iterate-until-verified loop** + Apple Silicon as the target platform (novel — almost all kernel-generation work is CUDA) + DeepSeek as the LLM (proves non-frontier LLMs are viable for this domain).
+What makes it different from KernelBench (Stanford 2024, benchmark) and Sakana AI CUDA Engineer (2025, evolutionary CUDA):
+- **Apple Silicon target.** Nearly all existing LLM-kernel-generation work is CUDA. MLX/Metal is undersupplied. (Defensible novelty.)
+- **Hidden holdout verification.** The verifier does not just compare against one sample input. It runs each candidate kernel against a holdout suite covering different shapes, strides, dtypes, eps values, and edge-magnitude inputs. The ledger only allows `verified_correct` if every holdout passes. (This is the real differentiation — Sakana's loop verifies one reference; ours verifies a generalization battery.)
+- **Cost-aware LLM routing.** The agent calls cheap `deepseek-v4-flash` on the happy path. After a compile or correctness failure, it escalates to expensive `deepseek-v4-pro` (thinking mode) via TrueFoundry AI Gateway's routing config. This is a production-realistic routing pattern (cost optimization with quality escalation), not just provider failover.
+- **Honest perf baselines.** We measure speedup against MLX eager, `mx.compile`, and MLX's own optimized built-ins (`mx.fast.rms_norm`, `mx.fast.rope`) — never PyTorch CPU as the main number. If we lose to a built-in, we say so.
 
-**One-line pitch:** *Most LLMs write Metal/MLX kernels that compile but quietly produce wrong outputs. KernelForge wraps any LLM in a tight generate→verify→iterate loop that refuses to claim correctness without proof.*
+**One-line pitch:** *Most LLM-written Metal kernels pass a quick smoke test and quietly fail on different shapes, strides, or edge magnitudes. KernelForge wraps DeepSeek in a hidden-holdout verification harness that refuses to claim correctness without proof, and routes cheap → expensive LLMs as failures escalate.*
 
 **In scope (MVP shipped before 2026-05-28):**
-- A verification harness: PyTorch reference + sample inputs + acceptance threshold (max-abs-diff and rel-diff) per op.
-- A code generator that calls DeepSeek through TrueFoundry AI Gateway with `deepseek-chat` (primary) and `deepseek-reasoner` (fallback) — provider-resilient LLM access.
-- A compile + run pipeline using `mlx.fast.metal_kernel` (and `mlx.compile` for ops where a raw Metal source is too ambitious).
-- A `KernelLedger` (states: `attempted → generated → compiled → verified_correct | verified_incorrect | perf_measured`) — the agent **cannot** report a kernel as ready unless its ledger entry reads `verified_correct`.
-- An iteration loop: when verification fails, the diff is parsed and the structured error (shape mismatch / max-abs-diff / sample indices with biggest error) is fed back into the next LLM prompt.
-- A benchmark suite of 5 ops (`RMSNorm`, `RoPE`, `SiLU`, `GLU`, `softmax`).
-- A naive baseline (same DeepSeek + raw single-shot prompt, no verification, no ledger) for the demo's side-by-side comparison.
-- A chaos harness that injects LLM brownouts (deepseek-chat 503 → fallback) and MCP-compiler failures (compiler MCP returns invalid binary or runtime errors).
-- A 4-row scorecard generator.
-- A Remotion-rendered demo video (≈ 2 min 15 s) with auto-generated voice-over (macOS `say` or open-source TTS).
-- A public GitHub repo + a `./run_demo.sh` script for one-command repro on any Apple Silicon Mac.
+- 3 operators: `RoPE`, `RMSNorm`, `SwiGLU`.
+- Per-op PyTorch reference implementation.
+- Per-op hidden holdout suite (~10–20 test cases per op, varying shape/stride/dtype/eps/magnitude).
+- A code generator that calls DeepSeek through TrueFoundry AI Gateway with `deepseek-v4-flash` (happy path) and `deepseek-v4-pro` (escalation).
+- One `kernel_lab` MCP server exposing `compile`, `run`, `verify`, `bench` tools.
+- A `KernelLedger` (states: `attempted → generated → compiled → smoke_passed → verified_correct | verified_incorrect | perf_measured | abandoned`).
+- A strict kernel-output JSON schema the LLM must fill (`source`, `grid`, `threadgroup`, `output_shapes`, `dtype`, `assumptions`).
+- An iteration loop (max 3 in demo, max 6 in regression) with structured diff-feedback to the LLM.
+- A naive baseline: same DeepSeek + smoke test only (no holdouts), no ledger, no escalation.
+- A chaos harness: LLM brownouts (Flash 503 → Pro), compiler MCP errors, **silently-wrong-output mode** (MCP returns plausible but algorithmically wrong tensors — what KernelForge's hidden holdouts catch).
+- A 4-row scorecard.
+- A Remotion-rendered demo video (≈ 2 min 15 s) consuming pre-generated static artifacts.
+- A public GitHub repo + `./run_demo.sh` on any Apple Silicon Mac.
 
 **Explicitly out of scope:**
-- CUDA / Triton — single backend, Apple Silicon only.
-- Generic agent framework (LangGraph etc.) — hand-rolled ~200-line state machine.
-- Full OpenTelemetry / Jaeger — structured JSON traces + TrueFoundry's own observability.
-- Operator fusion across multiple ops — one op at a time.
-- Quantization kernels (INT4 / FP8) — could be a stretch goal in "What's Next" but not in MVP.
-- Multi-host distributed kernel generation — single Mac, single process.
-- Interactive web dashboard — scorecard is a Markdown table + static HTML.
+- CUDA / Triton.
+- LangGraph / agent framework — hand-rolled ~200-line state machine.
+- Operator fusion (multi-op).
+- Quantization kernels.
+- 4th/5th ops (softmax, fused linear+act) — deferred to stretch.
+- Docker / containerization (Metal doesn't containerize cleanly).
+- Multi-host distributed generation.
 
 ## 3. Architecture
 
 ```
-Reference PyTorch op + sample inputs (e.g., RMSNorm(x; eps))
+PyTorch reference op + hidden holdout suite
         │
         ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -68,297 +78,328 @@ Reference PyTorch op + sample inputs (e.g., RMSNorm(x; eps))
 │                                                              │
 │   ┌─────────────┐    ┌─────────────────────────────────┐     │
 │   │ Planner     │───▶│ Iteration loop                  │     │
-│   │ (1 LLM call)│    │ (generate → compile → verify    │     │
-│   │             │    │  → analyze diff → repeat)       │     │
+│   │ (1 LLM call)│    │ generate → compile → smoke →    │     │
+│   │             │    │ holdout verify → analyze →      │     │
+│   │             │    │ (escalate model if failed) →    │     │
+│   │             │    │ repeat                          │     │
 │   └─────────────┘    └────────────────┬────────────────┘     │
 │                                       │                      │
 │                                       ▼                      │
 │   ┌──────────────────────────────────────────────┐           │
-│   │ Resilience layer                              │          │
+│   │ Resilience + routing layer                    │          │
 │   │ • llm_client → TrueFoundry AI Gateway         │          │
-│   │   (deepseek-chat primary,                     │          │
-│   │    deepseek-reasoner fallback;                │          │
-│   │    retry_config, fallback_status_codes)       │          │
-│   │ • compile_client → MCP-wrapped Metal/MLX      │          │
-│   │   compiler with timeout + retry budgets       │          │
-│   │ • verify_client → MCP-wrapped reference       │          │
-│   │   runner (PyTorch CPU)                        │          │
-│   │ • KernelLedger: per-op state ledger that      │          │
-│   │   final answer is rendered from               │          │
-│   │ • traces every step to structured JSON         │          │
+│   │   (deepseek-v4-flash primary, escalate to     │          │
+│   │    deepseek-v4-pro after first failure)       │          │
+│   │ • mcp_client → kernel_lab MCP (compile /      │          │
+│   │   run / verify / bench)                       │          │
+│   │ • KernelLedger: per-op state machine; final   │          │
+│   │   answer rendered from ledger only            │          │
+│   │ • Holdout suite enforcement                   │          │
+│   │ • Traces every step to JSONL                  │          │
 │   └──────────────────────────────────────────────┘           │
 └──────────────────────────────────────────────────────────────┘
         │                              │
         ▼                              ▼
 TrueFoundry AI Gateway        TrueFoundry MCP Gateway
-  ├─ deepseek-chat              ├─ metal_compile MCP
-  └─ deepseek-reasoner          ├─ kernel_run MCP
-                                └─ pytorch_ref MCP
+  ├─ deepseek-v4-flash          └─ kernel_lab MCP
+  │  (happy path, cheap)            ├─ compile (mlx.fast.metal_kernel
+  └─ deepseek-v4-pro                │           or mx.compile)
+     (escalation, expensive,        ├─ run     (mx.array I/O)
+      thinking mode)                ├─ verify  (PyTorch ref + holdouts)
+                                    └─ bench   (vs MLX eager, mx.compile,
+                                               mx.fast built-ins)
         │                              │
         ▼                              ▼
    Chaos middleware              Chaos middleware
-  (injects 503/timeout)         (injects compile error,
-                                 runtime error, silently
-                                 wrong output)
+  (503/timeout on Flash)        (deterministic failure modes
+                                 inside kernel_lab)
 ```
 
 **Component boundaries:**
 
 | Component | Owns | Does not own |
 | --- | --- | --- |
-| TrueFoundry AI Gateway | LLM provider routing, retry, fallback, observability of LLM calls | Agent state |
-| TrueFoundry MCP Gateway | MCP server registry, auth, transport | Tool-level circuit breaking, correctness verification |
-| KernelForge resilience layer | Per-tool circuit breaker, ledger transitions, structured error parsing, KernelLedger | LLM routing (defers to AI Gateway) |
-| KernelForge iteration loop | Generate → compile → verify → analyze → iterate | Resilience logic (delegates to layer) |
-| Chaos harness | Fault injection middleware (LLM-side, compiler-side) + scenario scripts | Scoring logic |
-| Scorecard generator | KernelLedger + perf data → comparison table | Anything live |
+| TrueFoundry AI Gateway | LLM routing + cost-aware escalation (Flash → Pro) | Agent state, holdout policy |
+| TrueFoundry MCP Gateway | MCP server registry, auth, transport | Tool internals, verification semantics |
+| KernelForge resilience layer | Circuit breaker per MCP tool, ledger transitions, structured error parsing, holdout enforcement | LLM routing (defers to AI Gateway) |
+| KernelForge iteration loop | Generate → compile → smoke → holdout verify → analyze → escalate → repeat | Resilience logic (delegates to layer) |
+| `kernel_lab` MCP | Metal compile, MLX run, PyTorch-ref verify, MLX-baseline bench | Agent policy decisions |
+| Chaos harness | Fault injection (LLM-side + kernel_lab-side) + scenario scripts | Scoring |
+| Scorecard generator | KernelLedger + perf data → 4-row table + detailed README scorecard | Anything live |
 
-**Critical division of labor** (carried over from Chaosguard Codex review):
-- **TrueFoundry owns LLM-level reliability primitives** (failover, retries, observability).
-- **KernelForge owns agent-level behavior under tool failure** — specifically, the ledger-based correctness contract that prevents the agent from claiming kernel correctness it has not verified.
+**Critical division of labor**:
+- **TrueFoundry owns LLM routing + escalation policy.**
+- **KernelForge owns verification semantics + holdout suite enforcement.**
+
+This split is what the sponsor judge sees on screen and what the README leads with.
 
 ## 4. Data flow
 
 ### 4.1 Happy path
 
-`agent.optimize("RMSNorm", reference_fn, sample_inputs)` →
-- LedgerEntry: `RMSNorm: attempted`
-- Planner LLM call via `llm_client` (DeepSeek-chat via TF Gateway) → returns kernel source
-- LedgerEntry: `RMSNorm: generated`
-- `compile_client.compile(kernel_src)` → returns compiled handle
-- LedgerEntry: `RMSNorm: compiled`
-- `verify_client.run_and_compare(handle, reference_fn, sample_inputs)` → returns `{max_abs_diff: 1.2e-7, rel_diff: 8.4e-7, passed: true}`
-- LedgerEntry: `RMSNorm: verified_correct`
-- `bench_client.measure(handle, reference_fn, sample_inputs)` → returns `{speedup: 1.6, ms_per_call: 0.42 vs 0.67}`
-- LedgerEntry: `RMSNorm: perf_measured`
-- Final answer: *"RMSNorm kernel verified correct, max-abs-diff 1.2e-7, 1.6× speedup over PyTorch reference."* — rendered from the ledger, not from the LLM's free output.
+`agent.optimize("RoPE", reference_fn, holdout_suite)` →
+- Ledger: `RoPE@1: attempted`
+- `llm_client.complete(prompt + structured_schema)` via TrueFoundry AI Gateway → `deepseek-v4-flash` → JSON `{source: "<metal kernel>", grid, threadgroup, output_shapes, dtype, assumptions}`
+- Ledger: `RoPE@1: generated`
+- `mcp_client.kernel_lab.compile(source, grid, threadgroup)` → compiled handle
+- Ledger: `RoPE@1: compiled`
+- `mcp_client.kernel_lab.run(handle, holdout[0].inputs)` → output tensor
+- Ledger: `RoPE@1: smoke_passed`
+- `mcp_client.kernel_lab.verify(handle, reference_fn, holdout_suite)` → per-case results
+  - All pass → ledger: `RoPE@1: verified_correct`
+  - Any fail → ledger: `RoPE@1: verified_incorrect`, includes failing-case diffs
+- If verified_correct: `mcp_client.kernel_lab.bench(handle, baselines=[mx_eager, mx_compile, mx_fast_rope])` → speedups
+- Ledger: `RoPE@1: perf_measured`
+- Final answer rendered from ledger.
 
-### 4.2 LLM brownout
+### 4.2 LLM cost-aware escalation (replaces provider failover)
 
-`llm_client.complete(...)` → POST to TrueFoundry AI Gateway → primary route (`deepseek-chat`) returns 503 → gateway's `retry_config` + `fallback_candidate` triggers backup route (`deepseek-reasoner`) → response returned with `x-tfy-routing` header noted in trace → loop continues with no code change inside KernelForge. The win is in `routing_config.yaml`.
+First iteration uses `deepseek-v4-flash` (cheap, ~30ms latency, $0.07/M tokens). If the first iteration fails compile OR holdout verification, the next iteration's `llm_client.complete(...)` adds `X-TFY-METADATA.escalate=pro` and the TrueFoundry AI Gateway routes to `deepseek-v4-pro` (thinking mode, slower, more expensive, but better at correctness). This is a cost-aware routing policy, not a failover. On screen the gateway header shows `x-tfy-routing: from=v4-flash to=v4-pro reason=quality-escalation`.
 
 ### 4.3 Compiler MCP failure
 
-`compile_client.compile(kernel_src)` → forwards to `metal_compile` MCP → chaos middleware injects a Metal compilation error → wrapper increments failure count → after 2 failures the breaker opens → next call short-circuits with `CompilerUnavailable`. Agent emits `DegradationEvent(step="metal_compile", reason="circuit_open")` and pauses iteration for this op (state remains `generated`, never advances to `compiled`). Final answer reflects the honest state.
+`mcp_client.kernel_lab.compile(...)` → chaos injects a Metal compilation error or runtime crash → wrapper retries within timeout budget → on 2 failures the per-tool circuit breaker opens → next call short-circuits with `CompilerUnavailable`. Ledger: `RoPE@1: abandoned` with reason `compiler_circuit_open`. Naive does the same but without breaker (loops, wastes time).
 
-### 4.4 The money shot: silent wrong-output detection
+### 4.4 The money shot: hidden holdout catches the bug
 
-`compile_client.compile(kernel_src)` → succeeds. LLM-generated kernel is plausible-looking but algorithmically wrong (e.g., wrong reduction axis, missing epsilon, wrong scaling). `kernel_run` MCP runs the binary on sample inputs and returns an output tensor. Tensor LOOKS shaped right. Naive baseline (no verifier) writes `"RMSNorm kernel ready, 2.1× speedup ✓"` — the kernel compiled, the runtime didn't crash, looks like success.
+DeepSeek-v4-flash generates a RoPE kernel that:
+- Compiles successfully.
+- Smoke-test passes (input shape `[1, 8, 64]` → output looks rotated correctly).
+- BUT the kernel implements **interleaved layout** (`x0, x1` adjacent) when the reference uses **split-half layout** (first half is `x_real`, second half is `x_imag`). On the smoke-test shape the difference is invisible — the rotation values happen to match. On the holdout case with shape `[2, 32, 128]` and `position_ids=[0, 1, ..., 31]`, the layout bug surfaces as `max_abs_diff = 0.84` on half the elements.
 
-KernelForge instead: `verify_client.run_and_compare(handle, reference_fn, sample_inputs)` → computes `max_abs_diff = 0.0073`, exceeds threshold `1e-4`. LedgerEntry advances to `verified_incorrect`. The verifier returns a structured diff report: *worst element at index `[5, 3]` predicted `0.13` vs reference `0.18`, RMS error `0.0034` over 4096 elements*. This report is fed back into the next LLM prompt: *"Your kernel produced wrong output. Worst case: output[5,3]=0.13 but reference=0.18. RMS error 0.0034. Common causes: wrong reduction axis, missing epsilon, wrong norm denominator. Try again."* LLM produces v2 → `max_abs_diff = 0.0008`, still incorrect → diff fed back → v3 → `max_abs_diff = 1.2e-7`, passes.
+**Naive baseline**: runs only the smoke test, claims `"RoPE kernel ready: 1.4× speedup ✓"`. The kernel ships, and downstream model outputs are silently wrong.
 
-**Final answer**: *"RMSNorm kernel verified correct after 3 iterations, 1.6× speedup."* Naive baseline confidently reported correctness on iteration 1's wrong kernel; KernelForge took 3 iterations but reported only verified state. **This contrast is the demo's emotional peak** — naive lies; KernelForge cannot.
+**KernelForge**:
+- Ledger: `RoPE@1: smoke_passed` then `verified_incorrect` (with the structured diff: "case `shape=[2,32,128]`, max_abs_diff=0.84, suspected layout mismatch (interleaved vs split-half)").
+- Diff fed back into next prompt: *"Your kernel passed shape `[1,8,64]` but failed on `[2,32,128]` with max_abs_diff 0.84. The reference uses split-half layout (first half real, second half imag); confirm your kernel matches."*
+- LLM escalates to `deepseek-v4-pro` (thinking mode) → iteration 2 → passes the smoke test AND all holdouts.
+- Ledger: `RoPE@2: verified_correct`.
+- Final: *"RoPE kernel verified correct after 2 iterations (escalated to v4-pro for iteration 2). Speedup over MLX eager: 1.2×. Speedup over `mx.fast.rope`: 0.8× (slower)."* — the perf disclosure is honest.
+
+This is the demo's emotional peak. **Naive does smoke-test-only and ships wrong code with a confident speedup number; KernelForge does holdout suite, catches the bug, escalates the LLM, and honestly reports it loses to MLX's expert built-in.**
 
 ## 5. Component specifications
 
 ### 5.1 `llm_client`
 
-- Single `complete(messages, **kwargs) -> Completion` method.
-- Calls TrueFoundry AI Gateway endpoint configured with `deepseek-chat` primary + `deepseek-reasoner` fallback.
-- Sends `X-TFY-METADATA: {"run_id", "op_name", "iteration"}` so gateway logs are joinable to local traces.
-- Surfaces gateway's `x-tfy-routing` / `x-tfy-fallback-applied` headers into the trace.
+- `complete(messages, *, escalation_hint: bool = False) -> Completion`.
+- TrueFoundry AI Gateway endpoint configured with `deepseek-v4-flash` as primary and `deepseek-v4-pro` as `fallback_candidate` for `fallback_status_codes = [503, 429, 408]`.
+- Cost-aware escalation: when iteration N > 1 OR previous iteration failed verification, sets `X-TFY-METADATA.escalate=pro`. Gateway routing config routes the request to `deepseek-v4-pro` based on this header.
+- All requests carry `X-TFY-METADATA: {run_id, op, iteration, escalation}` so gateway logs are joinable.
+- LLM must return a JSON object matching the strict kernel schema; the response is parsed with `pydantic.BaseModel.model_validate` — parse failures count as compile failures (not silent text-mode hacks).
 
-### 5.2 `compile_client` / `kernel_run_client` / `verify_client`
+Strict kernel schema:
+```python
+class KernelOutput(BaseModel):
+    source: str                       # raw Metal kernel source
+    grid: tuple[int, int, int]        # MTL thread grid
+    threadgroup: tuple[int, int, int] # MTL threadgroup size
+    output_shapes: list[tuple[int, ...]]  # expected output tensor shapes
+    dtype: Literal["float32", "float16", "bfloat16"]
+    assumptions: list[str]            # e.g. ["shape divisible by threadgroup[0]", "head_dim is even"]
+```
 
-Each is an MCP client to a small purpose-specific MCP server we ship:
-- `metal_compile`: takes kernel source, returns compiled handle (or compile error).
-- `kernel_run`: takes handle + input tensors, returns output tensor (or runtime error).
-- `pytorch_ref`: takes op_name + input tensors, returns reference output tensor.
+### 5.2 `kernel_lab` MCP server
 
-Each is wrapped by a per-tool circuit breaker (closed/open/half-open) with two named profiles. **Production default**: 3 failures → open, 30 s cool-down, tool timeout 5 s. **Demo profile** (set via env `KERNELFORGE_BREAKER_PROFILE=demo`): 2 failures → open, 8 s cool-down, tool timeout 1.2 s. Both live in `configs/breakers.toml`.
+A single MCP server exposing 4 tools:
+- `compile(source: str, grid: tuple, threadgroup: tuple) -> {handle: str, compile_log: str} | CompileError`. Uses `mlx.core.fast.metal_kernel(...)` for raw Metal source. For ops where raw Metal proves too hard in D1 spike, falls back to allowing `mx.compile`-style implementation submissions.
+- `run(handle: str, inputs: list[ndarray], dtype: str) -> {output: ndarray, runtime_ms: float} | RuntimeError`.
+- `verify(handle: str, op_name: str, holdout_suite: list[TestCase]) -> {results: list[VerifyResult], summary: {pass, fail, max_abs_diff_max, max_rel_diff_max}}`.
+- `bench(handle: str, op_name: str, baselines: list[Literal["mx_eager", "mx_compile", "mx_fast_builtin"]]) -> {kernel_ms: float, baseline_ms: dict[str, float], speedups: dict[str, float]}`.
 
-### 5.3 `KernelLedger`
+Per-tool circuit breakers (2 named profiles: production default 3 failures/30s cooldown, demo 2 failures/8s cooldown).
+
+### 5.3 Hidden holdout suite
+
+Per op, an extensible list of test cases. Held out from the LLM — never shown in any prompt. The LLM only ever sees the reference op spec + the per-case error diff after failure (e.g. "case `shape=[2,32,128] dtype=float16`, max_abs_diff 0.84"). The LLM does not see the holdout inputs themselves, so it cannot overfit.
+
+`RoPE` holdouts (illustrative — final list expanded D1):
+- `[1, 8, 64]` float32 standard.
+- `[2, 32, 128]` float32 — catches layout bugs (split-half vs interleaved).
+- `[4, 16, 256]` float16 — catches dtype assumptions.
+- `[1, 1, 64]` with `position_ids=[1000]` — catches base-frequency overflow.
+- `[2, 8, 64]` float32 with non-contiguous stride — catches stride assumptions.
+- `[1, 8, 64]` with `theta=10000.0` and `theta=500000.0` — catches frequency-scale issues.
+- Empty-batch edge: `[0, 8, 64]` — catches grid-launch-with-empty bugs.
+
+`RMSNorm` holdouts: vary `eps`, dtype, very-small-magnitude input (sub-eps), very-large-magnitude input, non-power-of-2 hidden dim.
+
+`SwiGLU` (`x * SiLU(W_gate(x)) * W_up(x)` style — concrete reference: PyTorch `F.silu(gate) * up`): vary batch, gate/up split, dtype, very large input range.
+
+### 5.4 `KernelLedger`
 
 ```python
 @dataclass(frozen=True)
 class LedgerEntry:
-    op: str                # e.g. "RMSNorm"
-    iteration: int         # 1, 2, 3, ...
-    state: Literal["attempted", "generated", "compiled", "verified_correct", "verified_incorrect", "perf_measured", "abandoned"]
-    kernel_source: str | None
-    verify_report: dict | None   # {max_abs_diff, rel_diff, sample_diffs, passed}
-    perf_report: dict | None     # {ms_per_call, ms_reference, speedup}
+    op: str
+    iteration: int
+    state: Literal["attempted", "generated", "compiled", "smoke_passed", "verified_correct", "verified_incorrect", "perf_measured", "abandoned"]
+    kernel: KernelOutput | None
+    verify_report: dict | None   # {pass, fail, max_abs_diff_max, failing_cases: [{shape, dtype, max_abs_diff, suspected_cause}]}
+    perf_report: dict | None     # {kernel_ms, baseline_ms: {mx_eager, mx_compile, mx_fast_builtin}, speedups}
     error: str | None
-    evidence_refs: list[str]     # trace_ids supporting the state
+    evidence_refs: list[str]
     timestamp_ms: int
+    llm_route: str               # "deepseek-v4-flash" or "deepseek-v4-pro"
 ```
 
-State transitions are strictly monotonic per (op, iteration). The final-answer renderer reads the latest entry per op and renders only what the ledger supports. The LLM is invoked in summarization mode for prose, **constrained by a JSON schema** that forbids claims of correctness when `state != verified_correct`.
+Strict monotonic state transitions per (op, iteration). Final answer rendered by a template function that reads the latest entry per op. The LLM is invoked in summarization mode with a JSON schema that **forbids claiming correctness when state != verified_correct**.
 
-### 5.4 Agent state machine
+### 5.5 Agent state machine
 
-Hand-rolled ~200-line Python. States per op: `PLANNING → GENERATING → COMPILING → VERIFYING → (REFINING → GENERATING) | BENCHMARKING | ABANDONED`. Iteration cap defaults to 5 per op (configurable via `configs/iteration.toml`). Each transition writes one trace event.
+Hand-rolled ~200-line Python. Per op: `PLANNING → GENERATING → COMPILING → SMOKE → HOLDOUT_VERIFY → (REFINE → escalate-flag → GENERATING) | BENCHMARKING | ABANDONED`. Iteration cap 3 in demo profile, 6 in regression profile. Each transition writes one trace event.
 
-### 5.5 Chaos middleware
+### 5.6 Chaos middleware
 
-Two FastAPI reverse proxies (preferred over MCP-internal injection because proxies are more deterministic and easier to film):
-- `chaos_llm_proxy`: in front of TrueFoundry AI Gateway. Toggles 503 / 429 / timeout on `deepseek-chat` per `chaos.toml`.
-- `chaos_mcp_proxy`: in front of `metal_compile` / `kernel_run`. Toggles compile-error / runtime-error / **silently-wrong-output** (returns a tensor that looks plausible but is numerically wrong) per `chaos.toml`.
+Two FastAPI proxies:
+- `chaos_llm_proxy`: in front of TrueFoundry AI Gateway. Toggles 503 / 429 / timeout on `deepseek-v4-flash` per `chaos.toml`.
+- `chaos_kernel_lab_proxy`: in front of the `kernel_lab` MCP. Toggles compile-error, runtime-error, and **silently-wrong-output** (returns a tensor with subtle algorithmic bug, like the RoPE layout error) per `chaos.toml`. **The silently-wrong-output mode is what the hidden holdout suite catches.**
 
-The silently-wrong-output mode is the analog of Chaosguard's silent-success-no-side-effect — it forces KernelForge's verifier to be the safety net.
+### 5.7 Scorecard
 
-`chaos.toml` example:
-
-```toml
-[scenario.demo_main]
-[[scenario.demo_main.faults]]
-target = "llm:deepseek-chat"
-mode = "503"
-duration_ms = 4000
-start_at_step = 1
-
-[[scenario.demo_main.faults]]
-target = "mcp:kernel_run"
-mode = "silently_wrong_output"
-op_filter = "RMSNorm"
-duration_ms = 30000  # spans the whole iteration
-intensity = 1.0       # corrupt every call
-```
-
-### 5.6 Scorecard
-
-Reads `traces/<run_id>.jsonl` + `ledger/<run_id>.jsonl` + perf data. Emits a **4-row table** designed for a 5-second on-screen flash:
+Reads `traces/<run_id>.jsonl` + `ledger/<run_id>.jsonl` + bench data. Emits a **4-row table**:
 
 | Metric | Naive | KernelForge |
 | --- | --- | --- |
-| Ops attempted | 5 | 5 |
-| Ops claimed correct | 5 | only the verified ones (e.g. 4) |
-| Ops actually correct (independent reference check) | 1 | matches "claimed correct" |
-| LLM failover via TrueFoundry AI Gateway | No | deepseek-chat → deepseek-reasoner |
+| Kernels claimed correct | 3/3 | only verified ones (e.g., 3/3) |
+| Hidden holdout pass rate | low (e.g., 50%) | 100% of claimed |
+| Silent-wrong-output rate | high (e.g., 67%) | 0% |
+| LLM routing | static `deepseek-v4-flash` | `v4-flash → v4-pro on escalation` |
 
-Detailed scorecard (README only): per-op iterations to convergence, max-abs-diff trajectory, breaker activations, per-op speedup.
+Detailed scorecard (README only): per-op iterations to convergence, per-iteration max_abs_diff trajectory, per-op breaker activations, kernel-vs-MLX-built-in speedup table with honest losses called out.
 
 ## 6. TrueFoundry integration surface
 
-These names appear in code, README, demo narration, and DevPost description (Codex round-1 verified against current TrueFoundry docs):
+Same product hooks as v1, with two refinements:
 
-- **AI Gateway** — primary LLM router for `deepseek-chat` ↔ `deepseek-reasoner`.
-- **Virtual Models / Routing Config** — `routing_config.yaml`.
-- **`retry_config`**, **`fallback_status_codes`**, **`fallback_candidate`** — explicit list including 503/429/timeout.
-- **`X-TFY-METADATA`** request header — carries `run_id` / `op_name` / `iteration`.
-- **MCP Gateway / MCP Registry** — central registration of `metal_compile`, `kernel_run`, `pytorch_ref` MCPs.
-- **Virtual MCP Servers** — bundled exposure of the three KernelForge MCPs as one virtual server.
-- **TrueFoundry Observability** — gateway-side LLM logs joinable to local traces via `X-TFY-METADATA.run_id`.
+- **AI Gateway**: routes `deepseek-v4-flash` (default) and escalates to `deepseek-v4-pro` based on `X-TFY-METADATA.escalate=pro`. This is the cost-aware-routing framing.
+- **MCP Gateway**: registers `kernel_lab` as a single MCP server with 4 tools.
+- **Virtual Models / Routing Config / `routing_config.yaml`** — on screen in demo Beat 2.
+- **`retry_config`**, **`fallback_status_codes`**, **`fallback_candidate`**.
+- **`X-TFY-METADATA`** — carries `run_id`, `op`, `iteration`, `escalation`.
+- **TrueFoundry Observability** — gateway-side LLM logs joinable to local traces.
 
-### 6.1 On-screen visibility requirements (demo video)
+### 6.1 On-screen visibility requirements
 
-Codex round-2 enforcement (carried from Chaosguard spec): **three** TrueFoundry product surfaces visible to camera during the 2-3 min recording:
+Three TF surfaces visible in the demo recording:
+1. **AI Gateway response headers** — `x-tfy-routing: from=v4-flash to=v4-pro reason=quality-escalation` during the escalation beat.
+2. **`routing_config.yaml`** flashes for ~2 s with the escalation rule highlighted (matching `X-TFY-METADATA.escalate`).
+3. **TrueFoundry MCP Gateway registry** — `kernel_lab` MCP listed.
 
-1. **AI Gateway response headers** during Beat 2 (LLM failover) overlaying `deepseek-chat → deepseek-reasoner` route with `run_id`.
-2. **`routing_config.yaml`** on screen for ~2 s with cursor highlighting `fallback_status_codes`, `retry_config`, `fallback_candidate`.
-3. **TrueFoundry MCP Gateway registry** showing `metal_compile`, `kernel_run`, `pytorch_ref` registered.
+### 6.2 Narration line
 
-### 6.2 Division-of-labor narration
-
-Spoken once in the demo, printed in README + DevPost: *"TrueFoundry handles LLM provider resilience. KernelForge handles kernel correctness verification."*
+Spoken once: *"TrueFoundry routes between cheap and expensive DeepSeek models based on whether the cheap one got it right. KernelForge tells it when to escalate."*
 
 ## 7. Demo (single continuous narrative, 2 min 15 s target)
 
-**Setup**: terminal split into two columns. Left = `naive` (raw DeepSeek + single-shot prompt, no verification, no ledger). Right = `kernelforge` (TrueFoundry AI Gateway + KernelForge iteration loop). Both run the same task list: `[RMSNorm, RoPE, SiLU, GLU, softmax]` with the same chaos scenario (`demo_main`).
+**Setup**: terminal split left = `naive` (DeepSeek-v4-flash + smoke test only, no holdouts, no escalation), right = `kernelforge` (full pipeline). Both run the same 3-op task list with the same chaos scenario (`demo_main` injects `silently_wrong_output` on RoPE specifically).
 
-**Beat 1 (0:00-0:25) — Opener around silent wrong-output.**
-Voiceover: *"Can an LLM write Apple Silicon GPU kernels? Yes. Will they be correct? Only about 30% of the time — and the LLM doesn't know which 30%."* Pre-show a naive `RMSNorm` kernel that compiles, runs, looks fine, but is silently wrong by 1.5%. Cut to `chaos.toml`. Hit run.
+**Beat 1 (0:00–0:25) — Opener.**
+VO: *"LLMs can write GPU kernels. They can also write GPU kernels that compile, pass a smoke test, and quietly break on the next batch. KernelForge catches the second kind."* Pre-show the naive RoPE confidently shipped with a 1.4× speedup claim, then a quick cut showing it failing on a different shape. Hit run.
 
-**Beat 2 (0:25-1:00) — LLM brownout, the TrueFoundry win.**
-Chaos injects 503 on `deepseek-chat`. Naive: errors, halts. KernelForge: TrueFoundry AI Gateway response header overlay shows `x-tfy-routing: fallback_candidate=deepseek-reasoner` with matching `run_id` to the local trace. `routing_config.yaml` flashes on screen with cursor on the three named fields. Iteration continues. Voiceover: *"TrueFoundry's AI Gateway handles the model failover. We didn't write a line of code for this."*
+**Beat 2 (0:25–0:55) — Cost-aware escalation, the TrueFoundry win.**
+RoPE iteration 1 with `deepseek-v4-flash` fails the holdout suite (interleaved-vs-split-half layout bug). KernelForge sets `X-TFY-METADATA.escalate=pro`. Gateway header overlay: `x-tfy-routing: from=v4-flash to=v4-pro reason=quality-escalation`. `routing_config.yaml` flashes with the escalation rule. v4-pro generates v2 of the kernel. VO: *"TrueFoundry routes between cheap and expensive DeepSeek models based on whether the cheap one got it right. KernelForge tells it when to escalate."*
 
-**Beat 3 (1:00-1:45) — Money shot: silent wrong-output detection on RMSNorm.**
-- Naive: generates a plausible kernel, compiles, runs, prints *"RMSNorm kernel ready: 2.1× speedup ✓"*. The narrator runs the same inputs through PyTorch reference and shows `max_abs_diff = 0.0073` — naive shipped a wrong kernel.
-- KernelForge: same DeepSeek output, but the verifier intercepts. Ledger: `RMSNorm: verified_incorrect`. Diff report fed back. Iteration 2: `max_abs_diff = 0.0008`, still incorrect. Diff fed back. Iteration 3: `max_abs_diff = 1.2e-7`, passes. Ledger: `RMSNorm: verified_correct`. Final output: *"RMSNorm kernel verified correct (3 iterations), 1.6× speedup."*
+**Beat 3 (0:55–1:45) — Hidden holdout money shot.**
+- **Naive** (left): generates kernel from v4-flash, compiles, runs smoke test on `[1,8,64]`, prints *"RoPE kernel ready: 1.4× speedup ✓"*. Narrator runs the SAME kernel on holdout shape `[2,32,128]` — max_abs_diff = 0.84. Naive shipped wrong code.
+- **KernelForge** (right): same v4-flash output, but verifier runs the full holdout suite. Catches the bug at case `[2,32,128]` with structured cause `"interleaved vs split-half layout"`. Diff fed back. v4-pro generates v2. Holdout suite passes 100%. Ledger advances to `verified_correct`.
+- Final on-screen for KernelForge: *"RoPE verified correct after 2 iterations (escalated to v4-pro). Speedup over MLX eager: 1.2×. Speedup over `mx.fast.rope`: 0.8× (slower, MLX built-in wins)."* — **honest perf disclosure**.
 
-Narrator says once: *"TrueFoundry handles LLM provider resilience. KernelForge handles kernel correctness verification."* Quick cut to the MCP Gateway registry — third TF surface satisfied.
+Narrator line spoken once during this beat: *"TrueFoundry routes between cheap and expensive DeepSeek models based on whether the cheap one got it right. KernelForge tells it when to escalate."* Cut to MCP Gateway registry showing `kernel_lab` — third TF surface satisfied.
 
-**Beat 4 (1:45-2:00) — Scale shot: 5 ops in parallel.**
-Dashboard fills as KernelForge processes the full benchmark suite. Naive fails 4/5 silently. KernelForge converges 4/5 with verified correctness; 1/5 (softmax with the corrupted-output chaos) hits the iteration cap and is honestly marked `abandoned` (not `verified_correct`).
+**Beat 4 (1:45–2:00) — Scale across the 3 ops.**
+Dashboard shows naive shipping 2 wrong / 1 right, KernelForge shipping 3 verified-correct (with 1 honestly slower than the MLX built-in). Iteration counts: 1/1/1 naive, 2/1/1 KernelForge.
 
-**Beat 5 (2:00-2:15) — Scorecard.**
-The 4-row table fills the screen for ~5 s:
+**Beat 5 (2:00–2:15) — Scorecard + closing.**
+The 4-row table on screen:
 
 | Metric | Naive | KernelForge |
 | --- | --- | --- |
-| Ops claimed correct | 5/5 | 4/5 (honest) |
-| Ops actually correct | 1/5 | 4/4 of claimed |
-| Silent wrong-output rate | 80% | 0% |
-| LLM failover via TrueFoundry | No | deepseek-chat → deepseek-reasoner |
+| Kernels claimed correct | 3/3 | 3/3 |
+| Hidden holdout pass rate | 33% (1/3) | 100% (3/3) |
+| Silent-wrong-output rate | 67% | 0% |
+| LLM routing | `v4-flash` only | `v4-flash → v4-pro on escalation` |
 
-Closing line: *"Correctness isn't optional. github.com/AntColony10086/kernelforge."*
+Closing: *"Correctness isn't a vibe. It's a holdout suite. github.com/AntColony10086/kernelforge."*
 
-**Cut budget**: if 15 s over, trim Beat 1 to 15 s by removing the cold open.
+Cut budget: if 15 s over, trim Beat 1 cold open.
 
 ## 8. Tech stack
 
 | Layer | Choice | Reason |
 | --- | --- | --- |
-| Host | M4 Mac mini 16GB / macOS Tahoe | The hardware the user has + Claude Code controls directly |
-| Language | Python 3.11 | MLX SDK + ecosystem |
-| MLX | latest (≥ 0.21) | Provides `mlx.fast.metal_kernel` for raw Metal authoring, plus `mlx.compile` |
-| Reference impls | PyTorch (CPU build) | Source-of-truth for correctness verification |
-| LLM transport | TrueFoundry AI Gateway → DeepSeek | Sponsor scoring + does the model failover |
-| MCP transport | TrueFoundry MCP Gateway, local-hosted MCPs (`metal_compile`, `kernel_run`, `pytorch_ref`) | Sponsor scoring + clean separation of agent vs tools |
-| Agent | hand-rolled ~200-line state machine | No framework overhead |
-| Verification | PyTorch + numpy tolerance checks | Standard practice |
-| Resilience | hand-rolled (circuit breaker + KernelLedger + chaos proxies) | This IS the product |
-| Traces | structured JSON Lines | No collector setup |
-| Scorecard | Python script → Markdown + HTML | No dashboard build |
-| Demo video | Remotion (programmatic React-rendered video) + macOS `say` for TTS narration + `ffmpeg` for screen overlays | Fully autonomous; no human in the loop |
-| Submission UI | chrome-devtools MCP fills DevPost form | Proven path; same MCP that filled Chaosguard's draft |
-| Packaging | `./run_demo.sh` + `requirements.txt` + Makefile | Mac-only — any Apple Silicon dev can repro |
-| CI | one GitHub Actions workflow that lints + runs the verification regression test | Doubles as "Progress" evidence |
+| Host | M4 Mac mini 16GB | the hardware Claude Code controls directly |
+| Language | Python 3.11 | MLX, FastAPI, pydantic |
+| MLX | ≥ 0.21 | `mlx.core.fast.metal_kernel` + `mx.compile` + `mx.fast.{rms_norm, rope}` built-ins |
+| Reference | PyTorch (CPU) | correctness reference only |
+| LLM | DeepSeek `v4-flash` + `v4-pro` via TrueFoundry AI Gateway | sponsor scoring + cost-aware escalation |
+| MCP | TrueFoundry MCP Gateway → local `kernel_lab` MCP | sponsor scoring + clean tool boundary |
+| Agent | hand-rolled state machine (~200 lines) | no framework overhead |
+| Holdout suite | per-op Python list of test cases | extensible, transparent |
+| Resilience | hand-rolled circuit breaker + KernelLedger + chaos proxies | this IS the product |
+| Traces | JSONL | no collector needed |
+| Scorecard | Python → Markdown + HTML | static, embeds cleanly in video |
+| Demo video | **scripted run → static artifacts (JSON + screenshots) → Remotion render + macOS `say` TTS + ffmpeg captions** | fully autonomous, doesn't depend on live timing |
+| Submission UI | chrome-devtools MCP fills DevPost | proven path |
+| Packaging | `./run_demo.sh` + `requirements.txt` + `Makefile` | Mac-only, any Apple Silicon dev repros |
+| CI | GH Actions: lint + regression test for false-correctness | doubles as "Progress" evidence |
 
-Things explicitly rejected: LangGraph, Jaeger, Docker (Metal doesn't containerize cleanly), web UI, vector DB, RAG, fine-tuning, CUDA, Triton.
+Rejected: Triton, CUDA, LangGraph, Jaeger, Docker, vector DB, RAG, fine-tuning, web dashboard, separate MCPs per tool.
 
 ## 9. Build plan (5.5-day timeline)
 
 | Day | Date | Deliverable |
 | --- | --- | --- |
-| D0 | 2026-05-22 (today, evening) | KernelForge spec written, Codex round-3 review pass, DevPost form rewritten from Chaosguard → KernelForge, repo scaffolded, MLX installed, hello-world (PyTorch RMSNorm == MLX RMSNorm via `mx.fast.rms_norm`). |
-| D1 | 2026-05-23 | TrueFoundry AI Gateway live with deepseek-chat primary + deepseek-reasoner fallback; `llm_client` working; first end-to-end planner call. MCP Gateway connected to the three local MCPs. Naive baseline reaching end-to-end on RMSNorm (without verification). |
-| D2 | 2026-05-24 | Iteration loop + KernelLedger + reference-based verifier (5 ops). Naive vs KernelForge comparison runner working without chaos. |
-| D3 | 2026-05-25 | Resilience layer: circuit breakers (with `breakers.toml` profiles), schema validator, structured diff-feedback prompt engineering. Chaos middleware running with all four modes (LLM 503, compile error, runtime error, silently wrong output). |
-| D4 | 2026-05-26 | Scorecard (4-row demo + full README versions), benchmarking with `mlx.benchmark` style timing, deterministic demo scenario (`demo_main`) reproducible 5/5 runs. False-correctness regression test passes. |
-| D5 | 2026-05-27 | Remotion demo video generation (React-rendered animations + macOS `say` voiceover + ffmpeg overlay), README polish, final DevPost rewrite. |
-| D6 | 2026-05-28 morning | Final read-through of DevPost public preview. Submit before 10:00 PDT. |
+| D0 | 2026-05-22 evening | KernelForge v2 spec locked (this document) ✓; Codex round-3 review applied ✓; DevPost form rewritten; repo scaffolded; MLX installed; `mlx.core.fast.metal_kernel` hello-world (PyTorch RMSNorm vs hand-written Metal RMSNorm — matches within 1e-4). |
+| D1 | 2026-05-23 | TrueFoundry AI Gateway live with `deepseek-v4-flash` primary + `deepseek-v4-pro` escalation. `llm_client` + strict JSON schema parsing. `kernel_lab` MCP with 4 tools running. First end-to-end RoPE round-trip on happy path. |
+| D2 | 2026-05-24 | All 3 ops' PyTorch reference + hidden holdout suites (target ≥ 10 cases per op). Naive baseline (smoke-only) finishes all 3. Baseline data captured: naive smoke pass rate, naive holdout pass rate, naive false-correctness rate. |
+| D3 | 2026-05-25 | KernelForge full iteration loop: holdout verify → structured diff feedback → escalation → re-generate. Chaos middleware (LLM brownout + silently-wrong-output) wired. False-correctness regression test in CI passes. |
+| D4 | 2026-05-26 | Benchmarker (vs MLX eager, mx.compile, mx.fast built-ins). Scorecard 4-row + detailed README scorecard. Deterministic demo scenario `demo_main` reproducible 5/5 runs. End-to-end smoke + holdout + bench on all 3 ops working. |
+| D5 | 2026-05-27 | Scripted run produces all static artifacts (traces, ledger, screenshots, scorecard.json, op-by-op timeline images). Remotion video pipeline consumes artifacts and renders 2:15 video + macOS `say` voiceover + ffmpeg-burned captions. README polish. DevPost rewrite. |
+| D6 | 2026-05-28 morning | Final DevPost public preview read-through. Submit before 10:00 PDT. |
 
-Each day ends with a Codex peer-review pass on the diff of that day (user-mandated dual-model loop).
+Each day ends with Codex round-N peer review on that day's diff.
 
 ## 10. Risks and mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
-| TrueFoundry SaaS signup is sales-gated | M | High | (a) Try SaaS sandbox D0 evening. (b) Email `sai@truefoundry.com` with hackathon-participant access request. (c) Build `llm_client` against OpenAI-compatible `base_url` so TrueFoundry is swappable late. (d) Fallback `local_gateway` (tiny FastAPI proxy implementing same `routing_config.yaml` semantics) — honestly labeled, not "TF-equivalent". |
-| `mlx.fast.metal_kernel` API too rough / undocumented | M | Medium | Fall back to `mlx.compile` for ops where raw Metal is too ambitious. Doc honestly in README; the "iteration loop + verification" thesis is unaffected by whether we author raw Metal or use the higher-level API. |
-| DeepSeek API rate limits during dev/recording | L | Medium | Cache LLM responses keyed by (op, iteration, prompt-hash) for the demo recording so we don't re-burn quota on each take. |
-| 16GB Mac mini thrashes under load | L | High (kills dev) | Keep tensor sizes small (≤ 4096×4096); close other apps during demo; benchmark only the kernel-of-interest, not full models. |
-| Demo video Remotion render fails / takes too long | M | High | Pre-render all expensive scenes; cache LLM responses; budget 4 h for D5 video work with a stable-checkpoint plan B (record terminal sessions with `asciinema`, stitch with ffmpeg, simpler animations). |
-| Project reads as "yet another LLM-writes-kernels demo" without differentiation | M | High | The iteration-loop + KernelLedger + Apple Silicon combination IS the differentiation. Make sure all three are prominent in the README opening + demo opening sentence + DevPost description. |
-| Naive baseline looks like a strawman | L | High | Silent wrong-output chaos mode (not crash) is exactly what a naive LLM call produces. Naive's code path uses the same DeepSeek + same prompt as KernelForge's first iteration; we publish naive source alongside to prove fairness. |
-| 5.5 days runs out | M | Total | D5 hard-frozen for video. If D4 slips, cut benchmark suite from 5 ops to 3 (drop GLU and softmax), keep RMSNorm + RoPE + SiLU. Scorecard still works. |
-| False correctness slips into KernelForge branch | L | Catastrophic | Two layers of defense: (1) final answer rendered from ledger only, LLM cannot inject claims; structured-output schema enforces this. (2) Regression test in CI asserts `for all op: op_in_final_answer.claims_correct ⇒ ledger[op].state == verified_correct`. |
-| Judges miss the TrueFoundry-vs-KernelForge distinction | M | Medium | Exact sentence *"TrueFoundry handles LLM provider resilience. KernelForge handles kernel correctness verification."* appears in Beat 3, README opening, DevPost pitch + About. |
-| Apple Silicon angle reads as "too niche" | L | Medium | README opens with the macro story: Apple Intelligence + MLX growth + half of YC W26 batch shipping on Apple Silicon → kernel optimization for this platform is undersupplied. |
+| TrueFoundry SaaS signup is sales-gated | M | High | (a) Sign up D0 night. (b) Email `sai@truefoundry.com` with pitch + access request. (c) `llm_client` built against OpenAI-compatible `base_url` so TF is swappable. (d) Honest `local_gateway` FastAPI proxy fallback labeled as such. |
+| `mlx.core.fast.metal_kernel` rough on real ops | M | Medium | D0 spike on RMSNorm. If raw Metal too hard, allow `mx.compile`-authored implementations for some ops; this does not break the verification + escalation thesis. |
+| DeepSeek v4-flash/pro quota / rate limit during dev or recording | L | Medium | Cache LLM responses keyed by (op, iteration, prompt_hash) for demo run. |
+| 16GB Mac mini thrashes | L | High | Keep tensor sizes ≤ 4096; close other apps during demo; benchmark only the kernel of interest. |
+| Remotion render fails / non-deterministic | M | High | Pre-cache LLM responses; static-artifact pipeline (scripted run → JSON+screenshots → Remotion consumes) means rendering does not depend on live execution. Fallback plan B: asciinema + ffmpeg, simpler animations, narration as voiceover only. |
+| Naive baseline looks like a strawman | L | High | Naive uses the SAME DeepSeek + SAME first-iteration prompt as KernelForge. The only difference is what it verifies (smoke only vs holdout suite). Source published alongside. |
+| 5.5 days runs out | M | Total | Hard freeze D5 for video. If D4 slips, cut SwiGLU; keep RoPE + RMSNorm. The money shot is RoPE, so it can not be cut. |
+| MLX built-ins crush our hand-written kernel | M | Medium-low | This is honesty risk, not a project-failure risk. Report the loss honestly in the perf table. Judges will respect honesty more than a fake speedup. |
+| False correctness slips through | L | Catastrophic | Two layers: (1) final answer rendered from ledger only, LLM cannot inject claims. (2) Regression test: assert no `op_in_final_answer.claims_correct` if `ledger[op].state != verified_correct`. |
+| Judges misunderstand "robust verification" angle | M | Medium | README opening + Beat 3 narration both lead with "hidden holdout suite ≠ smoke test", with the concrete RoPE layout example. |
 
 ## 11. Success criteria
 
-Bar for "good enough to place top-2 in TrueFoundry track":
-- One-command repro from a fresh checkout on any Apple Silicon Mac (`git clone && ./run_demo.sh`).
-- Naive-vs-KernelForge demo video deterministic, side-by-side, under 2 min 30 s, reproducible 5/5 runs.
-- At least 3 TrueFoundry product surfaces visible on screen during the recording (Section 6.1).
-- The exact division-of-labor sentence (Section 6.2) spoken once in the demo and printed in README + DevPost.
-- Scorecard 4-row table renders for both branches without manual intervention; matches Section 5.6 exactly.
-- TrueFoundry AI Gateway visibly in use, OR (only if SaaS access denied) `local_gateway` fallback honestly labeled.
-- README covers: what it is, the demo run command, the chaos scenarios, the TrueFoundry integration surface by name, the KernelLedger design and why it matters.
-- DevPost description matches the demo verbatim — no claim in the description that the video does not show.
-- Regression test green: no false-correctness claims in either branch's CI run.
+Bar for "good enough to place top-2 in TrueFoundry track" (Codex round-3 odds estimate: 42% after these refinements):
+
+- One-command repro on any Apple Silicon Mac.
+- Naive-vs-KernelForge demo video deterministic, side-by-side, ≤ 2 min 30 s, reproducible 5/5 runs.
+- 3 TF product surfaces visible in the recording (Section 6.1).
+- Division-of-labor sentence (Section 6.2) spoken once, printed in README + DevPost.
+- Scorecard matches Section 5.7 exactly.
+- TF AI Gateway visibly in use OR `local_gateway` fallback honestly labeled.
+- README leads with the hidden-holdout differentiation, names the RoPE layout example.
+- DevPost description matches the video — no claim not in the recording.
+- Honest perf disclosure: where we beat MLX built-ins, where we lose.
+- CI regression test green: no false-correctness claims.
 
 Stretch (for Overall Winner consideration):
-- A 6th op (e.g., a fused operation) demonstrating composition.
-- A short "design rationale" section in the README written like a technical blog post.
-- An interactive `./play.sh` that lets a Mac-equipped judge pick any of the 5 ops and watch the iteration loop converge live.
+- 4th op (e.g., fused residual + RMSNorm) demonstrating composition.
+- A short "design rationale" section in the README.
+- An interactive `./play.sh` letting a Mac-equipped judge pick an op and watch live iteration.
 
 ## 12. Open questions (close on D0)
 
-1. **TrueFoundry SaaS access** — same as Chaosguard spec; resolved via signup tonight + sai@truefoundry.com email + fallback `local_gateway`.
+1. **TrueFoundry SaaS access** — signup + sai@truefoundry.com email + fallback `local_gateway` ready.
 2. **MCP Gateway setup time** — same.
-3. **MLX `mlx.fast.metal_kernel` maturity** — needs D0/D1 spike to verify it can author the 5 target ops. If not, fallback to `mlx.compile`-authored implementations.
-4. **DeepSeek API key in `.env`** — user has agreed to drop the key before D1 starts; format `DEEPSEEK_API_KEY=...`. No other keys required.
-5. **Demo recording approach** — Remotion vs. headless `screencapture` of terminals. Decide on D4 once we know the visual surface. Default: Remotion (more reliable).
+3. **`mlx.core.fast.metal_kernel` maturity** — D0 spike on RMSNorm decides per-op raw-Metal vs `mx.compile` strategy.
+4. **DeepSeek key in `.env`** — `DEEPSEEK_API_KEY=...`, format confirmed.
+5. **Demo recording approach** — Remotion + static-artifact pipeline locked; fallback to asciinema+ffmpeg if Remotion fails.
+6. **Holdout case count per op** — start with ~10 each, expand if iteration loop converges too quickly (no demo drama) or too slowly (cap-bound abandonment).
