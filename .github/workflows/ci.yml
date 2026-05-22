@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-14  # arm64 macOS for MLX
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install deps
+        run: |
+          source "$HOME/.local/bin/env" 2>/dev/null || true
+          uv venv
+          uv pip install -e ".[dev]"
+      - name: Run tests
+        run: |
+          source "$HOME/.local/bin/env" 2>/dev/null || true
+          uv run pytest -q
+      - name: Lint
+        run: |
+          source "$HOME/.local/bin/env" 2>/dev/null || true
+          uv run ruff check kernelforge kernel_lab references chaos baselines scorecard local_gateway tests
