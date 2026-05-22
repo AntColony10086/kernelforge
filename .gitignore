@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+!.env.example
+*.log
+traces/
+outcome_ledger/
+scorecard.html
+node_modules/
+.DS_Store
+*.snapshot.txt
+devpost_step2_filled.png
+gallery_snapshot.txt
+sponsors_snapshot.txt
+updates_snapshot.txt
