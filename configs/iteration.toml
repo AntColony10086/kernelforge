@@ -1,0 +1,7 @@
+[profiles.demo]
+max_iterations = 3
+escalate_after_iteration = 1
+
+[profiles.regression]
+max_iterations = 6
+escalate_after_iteration = 1

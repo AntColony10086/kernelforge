@@ -1,0 +1,11 @@
+[profiles.production]
+failure_threshold = 3
+cooldown_seconds = 30
+tool_timeout_seconds = 5.0
+half_open_successes_to_close = 1
+
+[profiles.demo]
+failure_threshold = 2
+cooldown_seconds = 8
+tool_timeout_seconds = 1.2
+half_open_successes_to_close = 1

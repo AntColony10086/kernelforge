@@ -1,0 +1,15 @@
+[scenario.demo_main]
+description = "RoPE: silently-wrong-output via interleaved-vs-split-half layout."
+
+[[scenario.demo_main.faults]]
+target = "llm:deepseek-v4-flash"
+mode = "none"
+
+[[scenario.demo_main.faults]]
+target = "kernel_lab:run"
+mode = "silently_wrong_output"
+op_filter = "rope"
+strategy = "interleaved_layout"
+
+[scenario.no_chaos]
+description = "Clean run, no faults injected."

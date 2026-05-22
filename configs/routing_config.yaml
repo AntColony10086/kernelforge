@@ -1,0 +1,25 @@
+# TrueFoundry AI Gateway routing config — also consumed by local_gateway fallback.
+version: 1
+routes:
+  - name: deepseek-v4-flash
+    provider: deepseek
+    model: deepseek-v4-flash
+    priority: 1
+  - name: deepseek-v4-pro
+    provider: deepseek
+    model: deepseek-v4-pro
+    priority: 2
+
+retry_config:
+  max_attempts: 2
+  initial_backoff_ms: 200
+  max_backoff_ms: 2000
+
+fallback_status_codes: [408, 429, 500, 502, 503, 504]
+fallback_candidate: deepseek-v4-pro
+
+# Routing rule: if X-TFY-METADATA contains escalate=pro, send to v4-pro
+escalation_rules:
+  - if_header: "X-TFY-METADATA"
+    contains: "escalate=pro"
+    route_to: deepseek-v4-pro
