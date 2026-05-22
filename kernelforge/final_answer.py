@@ -30,6 +30,16 @@ def render_final_answer(ledger: KernelLedger, *, op: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def _sanitize(text: str | None) -> str:
+    """Redact the substring 'verified correct' from any text we splice into
+    the rendered output. Defense in depth: error strings, LLM-echoed text,
+    or any user-provided field could otherwise leak the forbidden claim.
+    """
+    if not text:
+        return ""
+    return text.replace("verified correct", "verified <REDACTED>").replace("Verified Correct", "Verified <REDACTED>")
+
+
 def _render_one(entry: LedgerEntry) -> str:
     op = entry.op
     iters = f"iteration {entry.iteration} ({entry.llm_route})"
@@ -53,6 +63,6 @@ def _render_one(entry: LedgerEntry) -> str:
         return f"{op}: smoke passed; holdout suite was not run ({iters})."
 
     if state == LedgerState.ABANDONED:
-        return f"{op}: abandoned ({iters}) - {entry.error or 'reason not recorded'}."
+        return f"{op}: abandoned ({iters}) - {_sanitize(entry.error) or 'reason not recorded'}."
 
     return f"{op}: in state '{state.value}' ({iters})."

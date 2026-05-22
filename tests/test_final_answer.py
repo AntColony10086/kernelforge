@@ -74,6 +74,22 @@ def test_full_run_summary_across_ops():
     assert "verified correct" not in rmsnorm_line.lower()
 
 
+def test_sanitizes_error_string_that_contains_forbidden_phrase():
+    """Even if an LLM-echoed error string contains 'verified correct',
+    the renderer must not leak it for a non-good state.
+    """
+    led = KernelLedger()
+    led.start("rope", iteration=1, llm_route="deepseek-v4-flash")
+    led.advance(
+        "rope",
+        LedgerState.ABANDONED,
+        error="LLM claimed: 'kernel verified correct on first try' but compile threw",
+    )
+    out = render_final_answer(led, op="rope")
+    assert "verified correct" not in out.lower()
+    assert "abandoned" in out.lower()
+
+
 def test_full_run_never_claims_correctness_without_verified_state():
     """Whatever combination of ledger states exists, the renderer must
     never produce the substring 'verified correct' for an op whose
