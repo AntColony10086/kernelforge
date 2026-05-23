@@ -9,7 +9,8 @@ traces/
 outcome_ledger/
 scorecard.html
 node_modules/
-demo/remotion/out/
+# demo/remotion/out/ — leave UNgitignored so demo.mp4 ships in the repo
+demo/remotion/out/voiceover.aiff
 demo/remotion/public/voiceover.wav
 demo/remotion/public/voiceover.aiff
 bun.lock

@@ -6,6 +6,22 @@ KernelForge wraps DeepSeek in a hidden-holdout verification harness that refuses
 
 > Built for the DevNetwork [AI + ML] Hackathon 2026, TrueFoundry Resilient Agents track.
 
+## Demo video
+
+[![KernelForge demo video](docs/media/frame_03.png)](demo/remotion/out/demo.mp4)
+
+Watch: [`demo/remotion/out/demo.mp4`](demo/remotion/out/demo.mp4) (2:15, 1080p, 7.1 MB)
+
+## Demo video — 5-beat walkthrough
+
+| Beat 1 — false-success problem | Beat 2 — TrueFoundry cost-aware escalation | Beat 3 — money shot: hidden holdout catches the silent bug |
+| :---: | :---: | :---: |
+| ![opener](docs/media/frame_01.png) | ![escalation](docs/media/frame_02.png) | ![money shot](docs/media/frame_03.png) |
+
+| Beat 4 — 20-op benchmark suite | Beat 5 — scorecard |
+| :---: | :---: |
+| ![20-op](docs/media/frame_04.png) | ![scorecard](docs/media/frame_05.png) |
+
 ## What it does
 
 Given a PyTorch reference operator (20 supported in the MVP, covering normalization / activation / reduction / elementwise / geometric / linalg families — see Benchmark Suite below), KernelForge generates an MLX/Metal kernel, runs it against a **hidden holdout suite** (~4 cases per op varying shape, dtype, magnitude), iterates with structured diff feedback until verified or capped, and reports honest perf vs MLX eager / `mx.compile` / `mx.fast` built-ins.
