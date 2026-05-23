@@ -17,11 +17,7 @@ from kernelforge.llm_client import LLMClient, LLMRouteChoice
 from kernelforge.prompts import KernelOutput
 
 
-_REFERENCE_SIGS = {
-    "rope": "def rope(x: Tensor, *, base: float = 10000.0) -> Tensor: ...  # split-half layout",
-    "rmsnorm": "def rmsnorm(x: Tensor, weight: Tensor, eps: float = 1e-6) -> Tensor: ...",
-    "swiglu": "def swiglu(gate: Tensor, up: Tensor) -> Tensor: ...  # SiLU(gate) * up",
-}
+from kernelforge.op_registry import REGISTRY
 
 
 def _iteration_config(profile: str = "demo") -> dict:
@@ -31,21 +27,16 @@ def _iteration_config(profile: str = "demo") -> dict:
     return cfg["profiles"][profile]
 
 
-def _output_shape_fn(op: str) -> Callable[[dict], list[tuple]]:
-    def fn(inputs: dict) -> list[tuple]:
-        if op == "rope":
-            return [tuple(inputs["x"].shape)]
-        if op == "rmsnorm":
-            return [tuple(inputs["x"].shape)]
-        if op == "swiglu":
-            return [tuple(inputs["gate"].shape)]
-        raise ValueError(op)
+def _ref_sig(op: str) -> str:
+    return REGISTRY[op].reference_signature
 
-    return fn
+
+def _output_shape_fn(op: str) -> Callable[[dict], list[tuple]]:
+    return REGISTRY[op].output_shape
 
 
 def _input_names(op: str) -> list[str]:
-    return {"rope": ["x"], "rmsnorm": ["x", "weight"], "swiglu": ["gate", "up"]}[op]
+    return list(REGISTRY[op].input_names)
 
 
 async def run_kernelforge(op: str, llm: LLMClient, *, profile: str = "demo") -> KernelLedger:
@@ -65,7 +56,7 @@ async def run_kernelforge(op: str, llm: LLMClient, *, profile: str = "demo") -> 
         try:
             kernel = await llm.generate_kernel(
                 op=op,
-                reference_signature=_REFERENCE_SIGS[op],
+                reference_signature=_ref_sig(op),
                 previous_diff=previous_diff,
                 escalate=escalate,
             )

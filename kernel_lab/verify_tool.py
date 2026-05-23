@@ -92,29 +92,15 @@ def verify_kernel(
     return VerifyReport(op=op, cases=results, pass_count=pc, fail_count=fc)
 
 
+from kernelforge.op_registry import REGISTRY
+
+
 def _call_reference(case: HoldoutCase, inputs: dict) -> torch.Tensor:
-    if case.op == "rope":
-        return case.reference_fn(inputs["x"], base=inputs["base"])
-    if case.op == "rmsnorm":
-        return case.reference_fn(inputs["x"], inputs["weight"], inputs["eps"])
-    if case.op == "swiglu":
-        return case.reference_fn(inputs["gate"], inputs["up"])
-    raise ValueError(f"unknown op {case.op}")
+    return REGISTRY[case.op].call_reference(case, inputs)
 
 
 def _to_mlx_inputs(inputs: dict, op: str) -> list[mx.array]:
-    def conv(t: torch.Tensor) -> mx.array:
-        if t.dtype != torch.float32:
-            return mx.array(t.detach().cpu().to(torch.float32).numpy())
-        return mx.array(t.detach().cpu().numpy())
-
-    if op == "rope":
-        return [conv(inputs["x"])]
-    if op == "rmsnorm":
-        return [conv(inputs["x"]), conv(inputs["weight"])]
-    if op == "swiglu":
-        return [conv(inputs["gate"]), conv(inputs["up"])]
-    raise ValueError(f"unknown op {op}")
+    return REGISTRY[op].extract_inputs(inputs)
 
 
 def _to_torch(arr: mx.array) -> torch.Tensor:

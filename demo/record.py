@@ -37,10 +37,17 @@ from scorecard.render import render_demo_scorecard, render_readme_scorecard
 
 
 ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
-OPS = ("rope", "rmsnorm", "swiglu")
-# ground_truth[op] = is the kernel SUPPOSED to be correct?
-# We corrupt rope via chaos middleware; the others should pass cleanly.
-GROUND_TRUTH = {"rope": False, "rmsnorm": True, "swiglu": True}
+# Full 20-op benchmark suite. Chaos middleware corrupts rope only (the
+# silent-wrong-output money shot). Other ops should pass cleanly if the
+# LLM produces a correct kernel.
+OPS = (
+    "rope", "rmsnorm", "layernorm", "swiglu",
+    "softmax", "gelu", "silu", "tanh",
+    "relu", "sigmoid", "exp", "log", "sqrt", "abs",
+    "sum_last", "max_last", "mean_last",
+    "elementwise_add", "elementwise_mul", "matmul",
+)
+GROUND_TRUTH = {op: (op != "rope") for op in OPS}
 
 
 def _check_env() -> None:

@@ -1,13 +1,14 @@
 from kernelforge.holdouts import HOLDOUTS, cases_for
 
 
-def test_holdouts_registered_for_three_ops():
-    assert set(HOLDOUTS.keys()) == {"rope", "rmsnorm", "swiglu"}
+def test_holdouts_cover_core_ops():
+    core = {"rope", "rmsnorm", "swiglu"}
+    assert core.issubset(set(HOLDOUTS.keys()))
 
 
 def test_holdouts_at_least_four_cases_per_op():
-    for op in ("rope", "rmsnorm", "swiglu"):
-        assert len(cases_for(op)) >= 4
+    for op in HOLDOUTS:
+        assert len(cases_for(op)) >= 4, f"{op} has fewer than 4 holdouts"
 
 
 def test_holdout_inputs_are_deterministic():

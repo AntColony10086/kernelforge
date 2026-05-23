@@ -29,22 +29,22 @@ class NaiveResult:
     error: str | None
 
 
-_REFERENCE_SIGS = {
-    "rope": "def rope(x: Tensor, *, base: float = 10000.0) -> Tensor: ...",
-    "rmsnorm": "def rmsnorm(x: Tensor, weight: Tensor, eps: float = 1e-6) -> Tensor: ...",
-    "swiglu": "def swiglu(gate: Tensor, up: Tensor) -> Tensor: ...",
-}
+from kernelforge.op_registry import REGISTRY
 
 
 def _input_names(op: str) -> list[str]:
-    return {"rope": ["x"], "rmsnorm": ["x", "weight"], "swiglu": ["gate", "up"]}[op]
+    return list(REGISTRY[op].input_names)
+
+
+def _ref_sig(op: str) -> str:
+    return REGISTRY[op].reference_signature
 
 
 async def naive_run(op: str, llm: LLMClient) -> NaiveResult:
     try:
         kernel = await llm.generate_kernel(
             op=op,
-            reference_signature=_REFERENCE_SIGS[op],
+            reference_signature=_ref_sig(op),
             previous_diff=None,
             escalate=False,
         )
