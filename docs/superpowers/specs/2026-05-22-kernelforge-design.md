@@ -1,5 +1,7 @@
 # KernelForge — Design Spec v2 (locked 2026-05-22 after Codex round 3)
 
+> **STATUS NOTE (added 2026-05-23):** This is the **original design spec** — what we set out to build before live execution. **Several aspirational details did not survive contact with reality.** Specifically: (1) `deepseek-v4-pro` was the planned escalation route, but its long-prompt streaming proved unreliable; the actually-shipped escalation route is `deepseek-coder`. (2) The spec sketches 5-iteration RoPE convergence with 1.6× speedup over MLX eager — none of this was achieved in the live run; KernelForge correctly refused to ship 0/20 kernels because none passed the hidden holdout suite. (3) The MCP server (`kernel_lab`) ships with `run/verify/bench` exposed as MCP tools that the agent calls via the in-process Python API (tensor marshaling across MCP is too heavy for the inner loop). **For the as-shipped behavior and actual live-run numbers, see `README.md` and `demo/artifacts/scorecard_demo.md`.** This spec is preserved as the design rationale and architectural reference.
+
 **Robust verification and cost-aware routing for LLM-written MLX / Metal kernels on Apple Silicon.**
 
 > **v1 → v2 changelog (post Codex round 3 review):**

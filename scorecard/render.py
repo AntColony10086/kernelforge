@@ -13,8 +13,17 @@ def render_demo_scorecard(outcomes: list[OpOutcome]) -> str:
     kf_false = kf_claimed - kf_correct
     total = len(outcomes) or 1
 
-    routes = sorted({r for o in outcomes for r in o.kf_llm_routes})
-    routes_str = " -> ".join(routes) if len(routes) > 1 else (routes[0] if routes else "n/a")
+    # Canonical escalation order (cheap → expensive), NOT alphabetical:
+    # deepseek-v4-flash is the happy-path route; deepseek-coder is the
+    # escalation target. Render in the order the agent actually traverses.
+    _CANONICAL_ROUTE_ORDER = [
+        "deepseek-v4-flash",
+        "deepseek-coder",
+        "deepseek-v4-pro",  # historical fallback name
+    ]
+    all_routes = {r for o in outcomes for r in o.kf_llm_routes}
+    ordered = [r for r in _CANONICAL_ROUTE_ORDER if r in all_routes] + sorted(all_routes - set(_CANONICAL_ROUTE_ORDER))
+    routes_str = " -> ".join(ordered) if len(ordered) > 1 else (ordered[0] if ordered else "n/a")
 
     lines = [
         "| Metric | Naive | KernelForge |",

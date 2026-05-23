@@ -1,0 +1,307 @@
+{
+  "ops": [
+    "rope",
+    "rmsnorm",
+    "layernorm",
+    "swiglu",
+    "softmax",
+    "gelu",
+    "silu",
+    "tanh",
+    "relu",
+    "sigmoid",
+    "exp",
+    "log",
+    "sqrt",
+    "abs",
+    "sum_last",
+    "max_last",
+    "mean_last",
+    "elementwise_add",
+    "elementwise_mul",
+    "matmul"
+  ],
+  "ground_truth": {
+    "rope": false,
+    "rmsnorm": true,
+    "layernorm": true,
+    "swiglu": true,
+    "softmax": true,
+    "gelu": true,
+    "silu": true,
+    "tanh": true,
+    "relu": true,
+    "sigmoid": true,
+    "exp": true,
+    "log": true,
+    "sqrt": true,
+    "abs": true,
+    "sum_last": true,
+    "max_last": true,
+    "mean_last": true,
+    "elementwise_add": true,
+    "elementwise_mul": true,
+    "matmul": true
+  },
+  "outcomes": [
+    {
+      "op": "abs",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "elementwise_add",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "elementwise_mul",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "exp",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "gelu",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "layernorm",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "log",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "matmul",
+      "naive_claimed_correct": false,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "max_last",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "mean_last",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "relu",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 1,
+      "kf_llm_routes": [
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "rmsnorm",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "rope",
+      "naive_claimed_correct": false,
+      "naive_actually_correct": false,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "sigmoid",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "silu",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "softmax",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "sqrt",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "sum_last",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "swiglu",
+      "naive_claimed_correct": true,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    },
+    {
+      "op": "tanh",
+      "naive_claimed_correct": false,
+      "naive_actually_correct": true,
+      "kf_claimed_correct": false,
+      "kf_actually_correct": false,
+      "kf_iterations": 3,
+      "kf_llm_routes": [
+        "deepseek-coder",
+        "deepseek-v4-flash"
+      ],
+      "kf_speedups": {}
+    }
+  ]
+}

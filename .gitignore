@@ -21,3 +21,5 @@ devpost_step2_filled.png
 gallery_snapshot.txt
 sponsors_snapshot.txt
 updates_snapshot.txt
+kernelforge.egg-info/
+uv.lock

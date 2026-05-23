@@ -1,0 +1,145 @@
+Naive baseline summary:
+  rope: claimed_correct=False error="llm_error: Server error '500 Internal Server Error' for url 'http://127.0.0.1:8765/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500"
+  rmsnorm: claimed_correct=True error=None
+  layernorm: claimed_correct=True error=None
+  swiglu: claimed_correct=True error=None
+  softmax: claimed_correct=True error=None
+  gelu: claimed_correct=True error=None
+  silu: claimed_correct=True error=None
+  tanh: claimed_correct=False error="llm_error: Server error '500 Internal Server Error' for url 'http://127.0.0.1:8765/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500"
+  relu: claimed_correct=True error=None
+  sigmoid: claimed_correct=True error=None
+  exp: claimed_correct=True error=None
+  log: claimed_correct=True error=None
+  sqrt: claimed_correct=True error=None
+  abs: claimed_correct=True error=None
+  sum_last: claimed_correct=True error=None
+  max_last: claimed_correct=True error=None
+  mean_last: claimed_correct=True error=None
+  elementwise_add: claimed_correct=True error=None
+  elementwise_mul: claimed_correct=True error=None
+  matmul: claimed_correct=False error="llm_error: LLM JSON does not match KernelOutput: 4 validation errors for KernelOutput\ngrid.0\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='a_shape[0]', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing\ngrid.1\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='b_shape[1]', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing\noutput_shapes.0.0\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='a_shape[0]', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing\noutput_shapes.0.1\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='b_shape[1]', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing"
+
+KernelForge ledger summary:
+Run summary:
+  abs: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  elementwise_add: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  elementwise_mul: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  exp: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  gelu: abandoned (iteration 3 (deepseek-coder)) - smoke_runtime: [metal::Device] Unable to build metal library from source
+mlx/backend/metal/kernels/utils.h:447:124: error: no member named 'erf' in namespace 'metal::precise'
+uint tid = thread_position_in_grid.x; if (tid >= x_shape[0]) return; float x_val = x[tid]; float erf_val = metal::precise::erf(x_val * 0.7071067811865475); float result = 0.5 * x_val * (1.0 + erf_val); out[tid] = result;
+                                                                                                           ~~~~~~~~~~~~~~~~^
+mlx/backend/metal/kernels/utils.h:447:47: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+uint tid = thread_position_in_grid.x; if (tid >= x_shape[0]) return; float x_val = x[tid]; float erf_val = metal::precise::erf(x_val * 0.7071067811865475); float result = 0.5 * x_val * (1.0 + erf_val); out[tid] = result;
+                                          ~~~ ^  ~~~~~~~~~~
+
+.
+  layernorm: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  log: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  matmul: abandoned (iteration 3 (deepseek-coder)) - smoke_runtime: [metal::Device] Unable to build metal library from source
+mlx/backend/metal/kernels/utils.h:449:14: error: use of undeclared identifier 'M'
+  if (row >= M || col >= N) return;
+             ^
+mlx/backend/metal/kernels/utils.h:449:26: error: use of undeclared identifier 'N'
+  if (row >= M || col >= N) return;
+                         ^
+mlx/backend/metal/kernels/utils.h:451:24: error: use of undeclared identifier 'K'
+  for (uint k = 0; k < K; ++k) {
+                       ^
+mlx/backend/metal/kernels/utils.h:452:20: error: use of undeclared identifier 'K'
+    sum += a[row * K + k] * b[k * N + col];
+                   ^
+mlx/backend/metal/kernels/utils.h:452:35: error: use of undeclared identifier 'N'
+    sum += a[row * K + k] * b[k * N + col];
+                                  ^
+mlx/backend/metal/kernels/utils.h:454:13: error: use of undeclared identifier 'N'
+  out[row * N + col] = sum;
+            ^
+
+.
+  max_last: abandoned (iteration 3 (deepseek-coder)) - smoke_runtime: [metal::Device] Unable to build metal library from source
+mlx/backend/metal/kernels/utils.h:452:14: error: unknown type name 'T'
+device const T* row_ptr = x + row * x_shape[1];
+             ^
+mlx/backend/metal/kernels/utils.h:453:1: error: unknown type name 'T'
+T max_val = row_ptr[0];
+^
+mlx/backend/metal/kernels/utils.h:455:5: error: unknown type name 'T'
+    T val = row_ptr[i];
+    ^
+mlx/backend/metal/kernels/utils.h:454:20: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+for (uint i = 1; i < x_shape[1]; ++i) {
+                 ~ ^ ~~~~~~~~~~
+
+.
+  mean_last: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  relu: abandoned (iteration 1 (deepseek-v4-flash)) - llm_error: Server error '500 Internal Server Error' for url 'http://127.0.0.1:8765/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500.
+  rmsnorm: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  rope: abandoned (iteration 3 (deepseek-coder)) - smoke_runtime: [metal::Device] Unable to build metal library from source
+mlx/backend/metal/kernels/utils.h:455:6: error: cannot combine with previous 'type-name' declaration specifier
+uint half = head_dim / 2;
+     ^
+mlx/backend/metal/kernels/utils.h:455:11: error: expected unqualified-id
+uint half = head_dim / 2;
+          ^
+mlx/backend/metal/kernels/utils.h:456:60: error: expected '(' for function-style cast or type construction
+float theta = metal::pow(10000.0, -2.0 * (float)(dim % half) / (float)head_dim);
+                                                       ~~~~^
+mlx/backend/metal/kernels/utils.h:461:15: error: expected '(' for function-style cast or type construction
+if (dim < half) {
+          ~~~~^
+mlx/backend/metal/kernels/utils.h:462:34: error: expected '(' for function-style cast or type construction
+    x_shift = (float)x[tid + half];
+                             ~~~~^
+mlx/backend/metal/kernels/utils.h:463:1: error: expected ']'
+} else {
+^
+mlx/backend/metal/kernels/utils.h:462:23: note: to match this '['
+    x_shift = (float)x[tid + half];
+                      ^
+mlx/backend/metal/kernels/utils.h:464:34: error: expected '(' for function-style cast or type construction
+    x_shift = (float)x[tid - half];
+                             ~~~~^
+mlx/backend/metal/kernels/utils.h:465:1: error: expected ']'
+}
+^
+mlx/backend/metal/kernels/utils.h:464:23: note: to match this '['
+    x_shift = (float)x[tid - half];
+                      ^
+mlx/backend/metal/kernels/utils.h:467:15: error: expected '(' for function-style cast or type construction
+if (dim < half) {
+          ~~~~^
+
+.
+  sigmoid: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  silu: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  softmax: abandoned (iteration 3 (deepseek-coder)) - smoke_runtime: [metal::Device] Unable to build metal library from source
+mlx/backend/metal/kernels/utils.h:447:673: error: use of undeclared identifier 'T'
+uint row = thread_position_in_grid.x; if (row >= x_shape[0]) return; uint col = thread_position_in_grid.y; if (col >= x_shape[1]) return; uint tid = thread_position_in_grid.z; if (tid >= x_shape[2]) return; uint idx = row * x_shape[1] * x_shape[2] + col * x_shape[2] + tid; float max_val = -INFINITY; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; if (val > max_val) max_val = val; } float sum = 0.0f; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; sum += metal::exp(val - max_val); } float inv_sum = 1.0f / sum; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; out[idx - tid + j] = (T)(metal::exp(val - max_val) * inv_sum); }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ^
+mlx/backend/metal/kernels/utils.h:447:47: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+uint row = thread_position_in_grid.x; if (row >= x_shape[0]) return; uint col = thread_position_in_grid.y; if (col >= x_shape[1]) return; uint tid = thread_position_in_grid.z; if (tid >= x_shape[2]) return; uint idx = row * x_shape[1] * x_shape[2] + col * x_shape[2] + tid; float max_val = -INFINITY; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; if (val > max_val) max_val = val; } float sum = 0.0f; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; sum += metal::exp(val - max_val); } float inv_sum = 1.0f / sum; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; out[idx - tid + j] = (T)(metal::exp(val - max_val) * inv_sum); }
+                                          ~~~ ^  ~~~~~~~~~~
+mlx/backend/metal/kernels/utils.h:447:116: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+uint row = thread_position_in_grid.x; if (row >= x_shape[0]) return; uint col = thread_position_in_grid.y; if (col >= x_shape[1]) return; uint tid = thread_position_in_grid.z; if (tid >= x_shape[2]) return; uint idx = row * x_shape[1] * x_shape[2] + col * x_shape[2] + tid; float max_val = -INFINITY; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; if (val > max_val) max_val = val; } float sum = 0.0f; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; sum += metal::exp(val - max_val); } float inv_sum = 1.0f / sum; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; out[idx - tid + j] = (T)(metal::exp(val - max_val) * inv_sum); }
+                                                                                                               ~~~ ^  ~~~~~~~~~~
+mlx/backend/metal/kernels/utils.h:447:185: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+uint row = thread_position_in_grid.x; if (row >= x_shape[0]) return; uint col = thread_position_in_grid.y; if (col >= x_shape[1]) return; uint tid = thread_position_in_grid.z; if (tid >= x_shape[2]) return; uint idx = row * x_shape[1] * x_shape[2] + col * x_shape[2] + tid; float max_val = -INFINITY; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; if (val > max_val) max_val = val; } float sum = 0.0f; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; sum += metal::exp(val - max_val); } float inv_sum = 1.0f / sum; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; out[idx - tid + j] = (T)(metal::exp(val - max_val) * inv_sum); }
+                                                                                                                                                                                    ~~~ ^  ~~~~~~~~~~
+mlx/backend/metal/kernels/utils.h:447:321: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+uint row = thread_position_in_grid.x; if (row >= x_shape[0]) return; uint col = thread_position_in_grid.y; if (col >= x_shape[1]) return; uint tid = thread_position_in_grid.z; if (tid >= x_shape[2]) return; uint idx = row * x_shape[1] * x_shape[2] + col * x_shape[2] + tid; float max_val = -INFINITY; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; if (val > max_val) max_val = val; } float sum = 0.0f; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; sum += metal::exp(val - max_val); } float inv_sum = 1.0f / sum; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; out[idx - tid + j] = (T)(metal::exp(val - max_val) * inv_sum); }
+                                                                                                                                                                                                                                                                                                                              ~ ^ ~~~~~~~~~~
+mlx/backend/metal/kernels/utils.h:447:452: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+uint row = thread_position_in_grid.x; if (row >= x_shape[0]) return; uint col = thread_position_in_grid.y; if (col >= x_shape[1]) return; uint tid = thread_position_in_grid.z; if (tid >= x_shape[2]) return; uint idx = row * x_shape[1] * x_shape[2] + col * x_shape[2] + tid; float max_val = -INFINITY; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; if (val > max_val) max_val = val; } float sum = 0.0f; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; sum += metal::exp(val - max_val); } float inv_sum = 1.0f / sum; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; out[idx - tid + j] = (T)(metal::exp(val - max_val) * inv_sum); }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                 ~ ^ ~~~~~~~~~~
+mlx/backend/metal/kernels/utils.h:447:593: warning: comparison of integers of different signs: 'uint' (aka 'unsigned int') and 'const constant int' [-Wsign-compare]
+uint row = thread_position_in_grid.x; if (row >= x_shape[0]) return; uint col = thread_position_in_grid.y; if (col >= x_shape[1]) return; uint tid = thread_position_in_grid.z; if (tid >= x_shape[2]) return; uint idx = row * x_shape[1] * x_shape[2] + col * x_shape[2] + tid; float max_val = -INFINITY; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; if (val > max_val) max_val = val; } float sum = 0.0f; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; sum += metal::exp(val - max_val); } float inv_sum = 1.0f / sum; for (uint j = 0; j < x_shape[2]; j++) { float val = (float)x[idx - tid + j]; out[idx - tid + j] = (T)(metal::exp(val - max_val) * inv_sum); }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ~ ^ ~~~~~~~~~~
+
+.
+  sqrt: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  sum_last: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  swiglu: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.
+  tanh: abandoned (iteration 3 (deepseek-coder)) - iteration cap reached without verification.

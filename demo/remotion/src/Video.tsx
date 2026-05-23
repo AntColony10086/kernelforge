@@ -124,15 +124,22 @@ RoPE: NOT shipped (no false claim)`}</pre>
 );
 
 const ScaleShot: React.FC = () => (
-  <AbsoluteFill style={{padding: 80, flexDirection: 'column', gap: 24}}>
-    <Title sub="Beat 4 — 3 ops, honest no-false-success accounting">Across the benchmark suite</Title>
-    <div style={{display: 'flex', flexDirection: 'column', gap: 16, marginTop: 24, fontSize: 26}}>
-      <div><span style={{color: ACCENT_RED}}>Naive</span> — claims 3/3 correct. Reality: <span style={{color: ACCENT_RED}}>1/3 silently wrong (rope under chaos)</span>. No retries, no escalation.</div>
-      <div><span style={{color: ACCENT_GREEN}}>KernelForge</span> — claims 0/3. Reality: <span style={{color: ACCENT_GREEN}}>0/3 false claims</span>. Tried v4-flash → coder, holdouts caught every iteration's bug.</div>
+  <AbsoluteFill style={{padding: 80, flexDirection: 'column', gap: 20}}>
+    <Title sub="Beat 4 — 20-op benchmark suite, ~80 hidden holdout cases">Across the benchmark suite</Title>
+    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 12, fontSize: 20}}>
+      <div><span style={{color: ACCENT_BLUE}}>Normalization</span> — rmsnorm, layernorm</div>
+      <div><span style={{color: ACCENT_BLUE}}>Activation</span> — silu, tanh, relu, sigmoid, gelu, swiglu</div>
+      <div><span style={{color: ACCENT_BLUE}}>Reduction</span> — sum_last, max_last, mean_last, softmax</div>
+      <div><span style={{color: ACCENT_BLUE}}>Elementwise</span> — exp, log, sqrt, abs, add, mul</div>
+      <div><span style={{color: ACCENT_BLUE}}>Geometric</span> — rope (chaos target)</div>
+      <div><span style={{color: ACCENT_BLUE}}>Linalg</span> — matmul</div>
     </div>
-    <div style={{marginTop: 32, fontSize: 22, opacity: 0.85, lineHeight: 1.5}}>
-      The naive baseline shipped a wrong RoPE kernel because the smoke test said OK and the holdouts were not run.<br/>
-      KernelForge would rather ship nothing than claim correctness it cannot prove.
+    <div style={{marginTop: 16, fontSize: 24, lineHeight: 1.4}}>
+      <div><span style={{color: ACCENT_RED}}>Naive</span> ships kernels after a single smoke test.</div>
+      <div><span style={{color: ACCENT_GREEN}}>KernelForge</span> runs every kernel against the full hidden holdout suite for its op (~4 cases each) before claiming correctness.</div>
+    </div>
+    <div style={{marginTop: 16, fontSize: 22, opacity: 0.85, lineHeight: 1.4}}>
+      Three ops would be a coincidence. Twenty ops is a contract: KernelForge would rather ship nothing than claim correctness it cannot prove — on any op the user throws at it.
     </div>
   </AbsoluteFill>
 );
