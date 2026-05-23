@@ -8,7 +8,7 @@ KernelForge wraps DeepSeek in a hidden-holdout verification harness that refuses
 
 ## What it does
 
-Given a PyTorch reference operator (`RoPE`, `RMSNorm`, `SwiGLU`), KernelForge generates an MLX/Metal kernel, runs it against a **hidden holdout suite** (10+ cases per op varying shape, stride, dtype, eps, edge magnitudes), iterates with structured diff feedback until verified or capped, and reports honest perf vs MLX eager / `mx.compile` / `mx.fast` built-ins.
+Given a PyTorch reference operator (20 supported in the MVP, covering normalization / activation / reduction / elementwise / geometric / linalg families — see Benchmark Suite below), KernelForge generates an MLX/Metal kernel, runs it against a **hidden holdout suite** (~4 cases per op varying shape, dtype, magnitude), iterates with structured diff feedback until verified or capped, and reports honest perf vs MLX eager / `mx.compile` / `mx.fast` built-ins.
 
 ## Why this is different
 
@@ -81,9 +81,36 @@ Each op has ~10 holdout cases that vary shape, stride, dtype, eps, and edge magn
 
 The LLM **never sees these inputs**. After a failure, only `(case_name, max_abs_diff, suspected_cause_hints)` is fed back into the next prompt.
 
-## Scorecard (demo run)
+## Benchmark suite (20 ops)
 
-See `demo/artifacts/scorecard_demo.md` and `demo/artifacts/scorecard_readme.md` (populated after `./run_demo.sh`).
+| Category | Ops |
+| --- | --- |
+| Normalization | rmsnorm, layernorm |
+| Activation | silu, tanh, relu, sigmoid, gelu, swiglu |
+| Reduction | sum_last, max_last, mean_last, softmax |
+| Elementwise | exp, log, sqrt, abs, elementwise_add, elementwise_mul |
+| Geometric | rope (the chaos-injected case in the demo) |
+| Linalg | matmul |
+
+Adding a new op is a 3-step contribution: (1) write a PyTorch reference in `references/<op>.py`, (2) add holdout cases in `kernelforge/holdouts.py`, (3) register an `OpDef` in `kernelforge/op_registry.py`. The agent loop, naive baseline, and verifier all read from the registry automatically.
+
+## Scorecard (live 20-op run)
+
+| Metric | Naive | KernelForge |
+| --- | --- | --- |
+| Kernels claimed correct | 17/20 | 0/20 |
+| Hidden holdout pass rate | (ground-truth based) | 0/20 |
+| LLM routing | deepseek-v4-flash only | deepseek-v4-flash → deepseek-coder |
+
+**Read**: Naive (smoke-only) declared 17 of 20 kernels correct because they compiled. KernelForge verified 0 of them against the hidden holdout suite — every single LLM-generated kernel had at least one holdout failure. **The contract held: KernelForge shipped zero false-success claims** while naive shipped 17 unverified kernels. The 2-min demo video uses a tighter 3-op scenario (with deterministic chaos on RoPE) where the contrast is sharper; the 20-op run above is the breadth evidence.
+
+Full artifacts: `demo/artifacts/scorecard_demo.md`, `demo/artifacts/scorecard_readme.md`, `demo/artifacts/kf_ledger.jsonl`, `demo/artifacts/run_summary.txt`.
+
+## Limitations we hit (and what we learned)
+
+**Apple Silicon Metal has no command-buffer timeout.** LLM-generated kernels with infinite loops will hang `mx.eval()` indefinitely, requiring a process kill. This is a real production risk for any "LLM writes GPU kernels" system on macOS. A robust deployment would subprocess-isolate each kernel evaluation with a watchdog; we ran into this on the 20-op suite during A/B comparison and de-scoped to the 3-op demo for video reproducibility. The 20-op infrastructure (registry, holdouts, A/B harness, few-shot examples) ships intact for anyone who wants to extend.
+
+**Few-shot vs zero-shot comparison.** `KERNELFORGE_FEWSHOT=1` enables a category-keyed expert example library (3 good/bad pairs spanning activation / reduction / geometric) at prompt time. `demo/compare_ab.py` produces an A/B scorecard between baseline and few-shot runs. The infrastructure is committed; running the full A/B requires subprocess-isolated kernel evaluation to defeat the GPU-hang issue above.
 
 ## Why not LangGraph / Sakana / etc.
 
