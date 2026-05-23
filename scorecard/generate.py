@@ -42,9 +42,12 @@ def load_ledger(path: Path) -> dict[str, list[dict]]:
 
 
 def compute_outcomes(naive_ledger: Path, kf_ledger: Path, ground_truth: dict[str, bool]) -> list[OpOutcome]:
-    """ground_truth[op] = True if the op is supposed to produce correct output
-    when the kernel is correct; False if chaos middleware corrupts it (so
-    naive's claim is a lie).
+    """Compute per-op outcomes.
+
+    naive_actually_correct prefers the `actually_correct_holdouts` field on
+    the naive ledger entry (a post-hoc holdout check that measures truth
+    independently of naive's claim). Falls back to `ground_truth[op]` when
+    the field is absent — for ledgers from older recorder versions.
     """
     naive = load_ledger(naive_ledger)
     kf = load_ledger(kf_ledger)
@@ -56,13 +59,18 @@ def compute_outcomes(naive_ledger: Path, kf_ledger: Path, ground_truth: dict[str
         kf_runs = kf.get(op, [])
         naive_claimed = bool(naive_last.get("claimed_correct")) or naive_last.get("state") == "verified_correct"
         kf_claimed = kf_last.get("state") in {"verified_correct", "perf_measured"}
+        # Prefer measured truth; fall back to the ground-truth assumption.
+        if "actually_correct_holdouts" in naive_last:
+            naive_truth = bool(naive_last["actually_correct_holdouts"])
+        else:
+            naive_truth = ground_truth.get(op, True)
         out.append(
             OpOutcome(
                 op=op,
                 naive_claimed_correct=naive_claimed,
-                naive_actually_correct=ground_truth.get(op, True),
+                naive_actually_correct=naive_truth,
                 kf_claimed_correct=kf_claimed,
-                kf_actually_correct=ground_truth.get(op, True) and kf_claimed,
+                kf_actually_correct=kf_claimed,  # KernelForge only claims after holdouts pass
                 kf_iterations=max((int(e.get("iteration", 1)) for e in kf_runs), default=0),
                 kf_llm_routes=sorted({e.get("llm_route", "") for e in kf_runs if e.get("llm_route")}),
                 kf_speedups=(kf_last.get("perf_report") or {}).get("speedups", {}) or {},

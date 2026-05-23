@@ -36,7 +36,8 @@ from scorecard.generate import compute_outcomes
 from scorecard.render import render_demo_scorecard, render_readme_scorecard
 
 
-ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
+_DEFAULT_ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
+ARTIFACTS = Path(os.environ.get("KERNELFORGE_ARTIFACTS_DIR", str(_DEFAULT_ARTIFACTS)))
 # Full 20-op benchmark suite. Chaos middleware corrupts rope only (the
 # silent-wrong-output money shot). Other ops should pass cleanly if the
 # LLM produces a correct kernel.
@@ -56,7 +57,60 @@ def _check_env() -> None:
         sys.exit(2)
 
 
-def _dump_naive(naive_results: list, path: Path) -> None:
+def _measure_naive_truth(naive_results: list) -> dict[str, bool | None]:
+    """Post-hoc: did each naive-claimed kernel actually pass the hidden holdout suite?
+
+    naive doesn't run holdouts internally (that would defeat the point of the
+    naive baseline). We do it ONCE here, AFTER naive made its claim, just to
+    measure ground-truth correctness for the scorecard. naive's behavior is
+    unchanged.
+    """
+    import os as _os
+    from kernel_lab.compile_tool import CompileError, compile_kernel
+    from kernel_lab.verify_tool import verify_kernel
+    from kernelforge.op_registry import REGISTRY
+
+    truth: dict[str, bool | None] = {}
+    for r in naive_results:
+        if not r.claimed_correct or r.kernel is None:
+            truth[r.op] = False  # didn't even claim; trivially "not actually correct"
+            continue
+        # Recompile naive's kernel (it was compiled once before but cache may be stale).
+        try:
+            handle = compile_kernel(
+                name=f"naive_truth_{r.op}",
+                source=r.kernel.source,
+                grid=r.kernel.grid,
+                threadgroup=r.kernel.threadgroup,
+                input_names=list(REGISTRY[r.op].input_names),
+                output_names=["out"],
+            )
+        except CompileError:
+            truth[r.op] = False
+            continue
+        # Apply per-op chaos (rope still gets corrupted in baseline).
+        _os.environ["CHAOS_KERNEL_LAB_CURRENT_OP"] = r.op
+        if r.op == "rope":
+            _os.environ["CHAOS_KERNEL_LAB_MODE"] = "silently_wrong_output"
+            _os.environ["CHAOS_KERNEL_LAB_OP_FILTER"] = "rope"
+        else:
+            _os.environ["CHAOS_KERNEL_LAB_MODE"] = "none"
+            _os.environ["CHAOS_KERNEL_LAB_OP_FILTER"] = ""
+        try:
+            report = verify_kernel(
+                handle=handle,
+                op=r.op,
+                grid=r.kernel.grid,
+                threadgroup=r.kernel.threadgroup,
+                output_shape_fn=REGISTRY[r.op].output_shape,
+            )
+            truth[r.op] = report.fail_count == 0
+        except Exception:
+            truth[r.op] = False
+    return truth
+
+
+def _dump_naive(naive_results: list, truth: dict[str, bool | None], path: Path) -> None:
     with path.open("w") as f:
         for r in naive_results:
             d = {
@@ -64,6 +118,7 @@ def _dump_naive(naive_results: list, path: Path) -> None:
                 "iteration": 1,
                 "llm_route": "deepseek-v4-flash",
                 "claimed_correct": r.claimed_correct,
+                "actually_correct_holdouts": truth.get(r.op, False),
                 "state": "verified_correct" if r.claimed_correct else "abandoned",
                 "claimed_speedup": r.claimed_speedup,
                 "error": r.error,
@@ -117,9 +172,10 @@ async def main() -> int:
         print(f"==> kernelforge {op}")
         kf_ledgers[op] = await run_kernelforge(op, llm, profile="demo")
 
+    naive_truth = _measure_naive_truth(naive_results)
     naive_path = ARTIFACTS / "naive_ledger.jsonl"
     kf_path = ARTIFACTS / "kf_ledger.jsonl"
-    _dump_naive(naive_results, naive_path)
+    _dump_naive(naive_results, naive_truth, naive_path)
     _dump_kf(kf_ledgers, kf_path)
 
     outcomes = compute_outcomes(naive_path, kf_path, GROUND_TRUTH)

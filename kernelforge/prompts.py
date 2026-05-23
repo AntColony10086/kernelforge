@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from typing import Literal
 
+import os
+
 from pydantic import AliasChoices, BaseModel, Field
+
+from kernelforge.expert_examples import examples_for
 
 
 class KernelOutput(BaseModel):
@@ -89,6 +93,20 @@ Reference PyTorch signature (this is the source of truth, your kernel must produ
 ```
 
 """
+
+    # Few-shot expert examples (enabled when KERNELFORGE_FEWSHOT=1).
+    # Selected by op category — one positive example and one negative
+    # example. The LLM is told NOT to copy verbatim but to use them for
+    # API conventions and known-bad patterns.
+    if os.environ.get("KERNELFORGE_FEWSHOT") == "1":
+        good, bad = examples_for(op)
+        user += (
+            "\n--- expert examples (study the pattern, do NOT copy verbatim) ---\n\n"
+            f"{good}\n\n"
+            f"{bad}\n\n"
+            "--- end examples ---\n\n"
+        )
+
     if previous_diff:
         case = previous_diff.get("failing_case", "?")
         max_abs_diff = previous_diff.get("max_abs_diff", "?")
